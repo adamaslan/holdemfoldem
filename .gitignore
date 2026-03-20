@@ -1,0 +1,65 @@
+# Dependencies
+node_modules/
+.npm
+
+# Next.js
+.next/
+out/
+build/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+env/
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Mamba / Conda
+conda-lock.yml
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+nu-logs/
+
+# GCP credentials
+*-service-account.json
+*credentials*.json
+*.key
+*.pem
+service-account.json
+gcp-config.json
+.gcp/
+.gcloud-credentials/
+
+# Claude local settings (keep commands/rules but not secrets)
+.claude/*.local.json
+.claude/settings.local.json
+
+# Test artifacts
+htmlcov/
+.coverage
+coverage.xml
+playwright-report/
+test-results/
