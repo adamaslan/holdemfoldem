@@ -390,11 +390,17 @@ def _build_verdict(
         for c in suppression_codes
     ]
 
+    # Derive trade plan direction from prices when bias is neutral but a plan exists.
+    # This prevents a bearish plan (target < entry) from producing a HOLD EM verdict.
+    effective_bias = bias
+    if has_trades and effective_bias == "neutral" and entry is not None and target is not None and entry != target:
+        effective_bias = "bullish" if target > entry else "bearish"
+
     # Verdict logic
-    if has_trades and bias == "bullish" and avg_score >= HOLD_THRESHOLD:
+    if has_trades and effective_bias == "bullish" and avg_score >= HOLD_THRESHOLD:
         verdict = "HOLD EM"
         confidence = min(avg_score * 1.05, MAX_CONF)
-    elif has_trades and bias == "bearish" and avg_score >= HOLD_THRESHOLD:
+    elif has_trades and effective_bias == "bearish" and avg_score >= HOLD_THRESHOLD:
         verdict = "FOLD EM"
         confidence = min(avg_score * 1.05, MAX_CONF)
     elif bullish > bearish and avg_score >= NEUTRAL_THRESHOLD:
@@ -453,7 +459,7 @@ def _build_verdict(
         verdict=verdict,
         confidence=round(confidence, 1),
         price=price,
-        bias=bias,
+        bias=effective_bias,
         risk_level=risk_lvl,
         cached=cached,
         bullish_count=bullish,
