@@ -393,7 +393,7 @@ def _build_verdict(
     # Derive trade plan direction from prices when bias is neutral but a plan exists.
     # This prevents a bearish plan (target < entry) from producing a HOLD EM verdict.
     effective_bias = bias
-    if has_trades and effective_bias == "neutral" and entry and target:
+    if has_trades and effective_bias == "neutral" and entry is not None and target is not None and entry != target:
         effective_bias = "bullish" if target > entry else "bearish"
 
     # Verdict logic
@@ -459,7 +459,7 @@ def _build_verdict(
         verdict=verdict,
         confidence=round(confidence, 1),
         price=price,
-        bias=bias,
+        bias=effective_bias,
         risk_level=risk_lvl,
         cached=cached,
         bullish_count=bullish,
