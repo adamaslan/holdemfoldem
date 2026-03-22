@@ -287,11 +287,13 @@ def _position_eval(
     pnl_dollar = (price - entry) * mult
     vs_stop = vs_target = None
     if stop:
-        vs_stop = ("Above stop ✓" if price > stop else "BELOW STOP ✗") if side == "long" \
-                  else ("Below stop ✓" if price < stop else "ABOVE STOP ✗")
+        long_stop  = "Above stop ✓" if price > stop else "BELOW STOP ✗"
+        short_stop = "Below stop ✓" if price < stop else "ABOVE STOP ✗"
+        vs_stop = long_stop if side == "long" else short_stop
     if target:
-        vs_target = ("AT/ABOVE TARGET ✓" if price >= target else f"${target - price:.2f} to target") if side == "long" \
-                    else ("AT/BELOW TARGET ✓" if price <= target else f"${price - target:.2f} to target")
+        long_target  = "AT/ABOVE TARGET ✓" if price >= target else f"${target - price:.2f} to target"
+        short_target = "AT/BELOW TARGET ✓" if price <= target else f"${price - target:.2f} to target"
+        vs_target = long_target if side == "long" else short_target
     return round(pnl_pct, 2), round(pnl_dollar, 4), vs_stop, vs_target
 
 
@@ -425,11 +427,10 @@ def _strategy_pnl_at_expiry(
         call_long  = _call_payoff(spot, w_high)
         return put_long - put_short - call_short + call_long + net_premium
 
-    if strategy == "straddle" and len(s) >= 2:
-        # buy call + buy put (usually same strike)
-        call_leg = _call_payoff(spot, s[1])  # upper strike (call)
-        put_leg  = _put_payoff(spot,  s[0])  # lower strike (put)
-        return call_leg + put_leg + net_premium  # net_premium is negative
+    if strategy == "straddle" and len(s) >= 1:
+        # buy ATM call + ATM put at the same strike
+        atm_strike = s[0]
+        return _call_payoff(spot, atm_strike) + _put_payoff(spot, atm_strike) + net_premium
 
     if strategy == "strangle" and len(s) >= 2:
         put_leg  = _put_payoff(spot, s[0])
@@ -510,8 +511,10 @@ def _compute_payoff_metrics(
             deduped.append(be)
     breakevens = deduped
 
-    # Probability of profit: rough estimate using normal distribution on underlying moves
-    # PoP ≈ fraction of payoff_curve points where pnl > 0
+    # Probability of Profit (PoP): VERY ROUGH estimate.
+    # This is the fraction of the analyzed price range where PnL > 0,
+    # assuming a uniform distribution. Overestimates PoP for OTM strategies.
+    # A better model would weight by a log-normal distribution using IV and DTE.
     pop: float | None = None
     if pnls:
         profitable = sum(1 for pnl in pnls if pnl > 0)

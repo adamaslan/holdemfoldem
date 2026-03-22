@@ -322,12 +322,6 @@ export default function Home() {
   const pnlColor  = (verdict?.position_pnl_pct ?? 0) >= 0 ? "text-green-400" : "text-red-400";
   const rsiColor  = (verdict?.rsi ?? 50) < 30 ? "text-green-300" : (verdict?.rsi ?? 50) > 70 ? "text-red-300" : "text-white";
 
-  // Current position P&L from net_premium if strategy position
-  const premiumPnl: number | null = (() => {
-    if (!verdict?.net_premium || !verdict?.price) return null;
-    return null; // computed server-side
-  })();
-
   return (
     <main className="min-h-screen bg-gray-950 text-white flex flex-col items-center px-4 py-10 font-sans">
 
@@ -411,7 +405,7 @@ export default function Home() {
                 <div className="text-gray-500 text-[9px] uppercase tracking-widest mb-1.5">
                   Strike Prices <span className="text-gray-700 normal-case">(optional but needed for payoff math)</span>
                 </div>
-                <div className={`grid gap-2 ${legCount >= 4 ? "grid-cols-2" : legCount === 2 ? "grid-cols-2" : "grid-cols-1"}`}>
+                <div className={`grid gap-2 ${legCount === 1 ? "grid-cols-1" : "grid-cols-2"}`}>
                   {legLabels.slice(0, legCount).map((label, i) => (
                     <NumInput key={i} label={label} value={strikes[i]} onChange={(v) => setStrike(i, v)} prefix="$" step="0.5" />
                   ))}
