@@ -57,6 +57,9 @@ gcp-config.json
 .claude/*.local.json
 .claude/settings.local.json
 
+# Local docs / test results
+docs/
+
 # Test artifacts
 htmlcov/
 .coverage
