@@ -307,9 +307,13 @@ export default function Home() {
           position_side:    posSide,
         }),
       });
-      if (!res.ok) { const e = await res.json(); throw new Error(e.detail ?? "Analysis failed"); }
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        const msg = e.detail ?? e.error ?? e.message ?? `HTTP ${res.status}`;
+        throw new Error(msg);
+      }
       setVerdict(await res.json());
-    } catch (e) { setError(String(e)); } finally { setLoading(false); }
+    } catch (e) { setError(String(e).replace(/^Error:\s*/, "")); } finally { setLoading(false); }
   }
 
   const vc = verdict?.verdict === "HOLD EM"
@@ -504,9 +508,24 @@ export default function Home() {
       </form>
 
       {/* Error */}
-      {error && (
-        <div className="mt-6 w-full max-w-lg rounded-xl border border-red-500/40 bg-red-950/30 p-4 text-red-300 text-sm">{error}</div>
-      )}
+      {error && (() => {
+        const e = error.toLowerCase();
+        const isRateLimit   = e.includes("rate") || e.includes("too many");
+        const isUnreachable = e.includes("unreachable") || e.includes("econnrefused");
+        const isUnavailable = e.includes("503") || e.includes("service unavailable");
+        const title = isRateLimit   ? "⏳ Rate Limited"
+                    : isUnreachable ? "🔌 Backend Unreachable"
+                    : isUnavailable ? "🚫 Service Unavailable"
+                    : "❌ Analysis Failed";
+        return (
+          <div className="mt-6 w-full max-w-lg rounded-xl border border-red-500/40 bg-red-950/30 p-4 text-sm space-y-1">
+            <div className="text-red-300 font-semibold">{title}</div>
+            <div className="text-red-400/80">{error}</div>
+            {isRateLimit   && <div className="text-red-500/60 text-xs mt-1">Yahoo Finance rate-limits heavy usage. Wait 30–60 seconds and try again.</div>}
+            {isUnreachable && <div className="text-red-500/60 text-xs mt-1">Start the backend: <code className="bg-red-950 px-1 rounded">python backend/main.py</code></div>}
+          </div>
+        );
+      })()}
 
       {/* Result card */}
       {verdict && (

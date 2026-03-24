@@ -30,10 +30,10 @@ trap "rm -rf $BUILD_CTX" EXIT
 cp -r "$MCP_SRC/src"       "$BUILD_CTX/src"
 cp -r "$MCP_SRC/fibonacci" "$BUILD_CTX/fibonacci" 2>/dev/null || true
 
-# Copy cloud-run assets (Dockerfile, main.py, environment.yml)
+# Copy cloud-run assets (Dockerfile, environment.yml) + v5 main.py
 mkdir -p "$BUILD_CTX/cloud-run"
 cp "$SCRIPT_DIR/backend/cloud-run/Dockerfile"       "$BUILD_CTX/Dockerfile"
-cp "$SCRIPT_DIR/backend/cloud-run/main.py"          "$BUILD_CTX/cloud-run/main.py"
+cp "$SCRIPT_DIR/backend/main.py"                    "$BUILD_CTX/cloud-run/main.py"
 cp "$SCRIPT_DIR/backend/cloud-run/environment.yml"  "$BUILD_CTX/cloud-run/environment.yml"
 
 echo "📦 Build context prepared at $BUILD_CTX"
@@ -42,12 +42,17 @@ ls "$BUILD_CTX"
 # ── Deploy ────────────────────────────────────────────────────────────────────
 cd "$BUILD_CTX"
 
+# API keys are stored in GCP Secret Manager (never passed as plain env vars)
+# Secrets must exist: FINNHUB_API_KEY, ALPHA_VANTAGE_KEY, GEMINI_API_KEY
+# To create/update: gcloud secrets versions add SECRET_NAME --data-file=-
+
 gcloud run deploy "$SERVICE" \
     --source . \
     --region "$REGION" \
     --project "$PROJECT_ID" \
     --allow-unauthenticated \
     --set-env-vars="GCP_PROJECT_ID=$PROJECT_ID" \
+    --set-secrets="FINNHUB_API_KEY=FINNHUB_API_KEY:latest,ALPHA_VANTAGE_KEY=ALPHA_VANTAGE_KEY:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest" \
     --memory=1Gi \
     --cpu=1 \
     --min-instances=0 \
