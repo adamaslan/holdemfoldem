@@ -1,18 +1,34 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const BACKEND = process.env.BACKEND_URL ?? "http://localhost:8001";
+const BACKEND = process.env.BACKEND_URL ?? "http://localhost:8000";
 
 export async function POST(req: NextRequest) {
   const body = await req.json();
+  let res: Response;
   try {
-    const res = await fetch(`${BACKEND}/api/analyze`, {
+    res = await fetch(`${BACKEND}/api/analyze`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-    const data = await res.json();
-    return NextResponse.json(data, { status: res.status });
   } catch (err) {
-    return NextResponse.json({ error: String(err) }, { status: 503 });
+    const msg = String(err).includes("ECONNREFUSED")
+      ? `Backend unreachable at ${BACKEND} — is the backend server running?`
+      : `Failed to reach backend: ${err}`;
+    return NextResponse.json({ detail: msg }, { status: 503 });
   }
+
+  const data = await res.json().catch(() => ({}));
+
+  if (!res.ok) {
+    // Surface the backend's error message (detail, error, or message field)
+    const detail =
+      data?.detail ??
+      data?.error ??
+      data?.message ??
+      `Backend error ${res.status}: ${res.statusText}`;
+    return NextResponse.json({ detail }, { status: res.status });
+  }
+
+  return NextResponse.json(data, { status: res.status });
 }

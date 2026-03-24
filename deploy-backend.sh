@@ -30,10 +30,10 @@ trap "rm -rf $BUILD_CTX" EXIT
 cp -r "$MCP_SRC/src"       "$BUILD_CTX/src"
 cp -r "$MCP_SRC/fibonacci" "$BUILD_CTX/fibonacci" 2>/dev/null || true
 
-# Copy cloud-run assets (Dockerfile, main.py, environment.yml)
+# Copy cloud-run assets (Dockerfile, environment.yml) + v5 main.py
 mkdir -p "$BUILD_CTX/cloud-run"
 cp "$SCRIPT_DIR/backend/cloud-run/Dockerfile"       "$BUILD_CTX/Dockerfile"
-cp "$SCRIPT_DIR/backend/cloud-run/main.py"          "$BUILD_CTX/cloud-run/main.py"
+cp "$SCRIPT_DIR/backend/main.py"                    "$BUILD_CTX/cloud-run/main.py"
 cp "$SCRIPT_DIR/backend/cloud-run/environment.yml"  "$BUILD_CTX/cloud-run/environment.yml"
 
 echo "📦 Build context prepared at $BUILD_CTX"
@@ -42,12 +42,17 @@ ls "$BUILD_CTX"
 # ── Deploy ────────────────────────────────────────────────────────────────────
 cd "$BUILD_CTX"
 
+# Read API keys from the shared .env (same file the local backend uses)
+FINNHUB_KEY=$(grep "^FINNHUB_API_KEY=" "$MCP_SRC/.env" | cut -d= -f2-)
+AV_KEY=$(grep "^ALPHA_VANTAGE_KEY=" "$MCP_SRC/.env" | cut -d= -f2-)
+GEMINI_KEY=$(grep "^GEMINI_API_KEY=" "$MCP_SRC/.env" | cut -d= -f2-)
+
 gcloud run deploy "$SERVICE" \
     --source . \
     --region "$REGION" \
     --project "$PROJECT_ID" \
     --allow-unauthenticated \
-    --set-env-vars="GCP_PROJECT_ID=$PROJECT_ID" \
+    --set-env-vars="GCP_PROJECT_ID=$PROJECT_ID,FINNHUB_API_KEY=$FINNHUB_KEY,ALPHA_VANTAGE_KEY=$AV_KEY,GEMINI_API_KEY=$GEMINI_KEY" \
     --memory=1Gi \
     --cpu=1 \
     --min-instances=0 \

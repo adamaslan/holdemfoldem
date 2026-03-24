@@ -307,9 +307,13 @@ export default function Home() {
           position_side:    posSide,
         }),
       });
-      if (!res.ok) { const e = await res.json(); throw new Error(e.detail ?? "Analysis failed"); }
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        const msg = e.detail ?? e.error ?? e.message ?? `HTTP ${res.status}`;
+        throw new Error(msg);
+      }
       setVerdict(await res.json());
-    } catch (e) { setError(String(e)); } finally { setLoading(false); }
+    } catch (e) { setError(String(e).replace(/^Error:\s*/, "")); } finally { setLoading(false); }
   }
 
   const vc = verdict?.verdict === "HOLD EM"
@@ -505,7 +509,24 @@ export default function Home() {
 
       {/* Error */}
       {error && (
-        <div className="mt-6 w-full max-w-lg rounded-xl border border-red-500/40 bg-red-950/30 p-4 text-red-300 text-sm">{error}</div>
+        <div className="mt-6 w-full max-w-lg rounded-xl border border-red-500/40 bg-red-950/30 p-4 text-sm space-y-1">
+          <div className="text-red-300 font-semibold">
+            {error.toLowerCase().includes("rate") || error.toLowerCase().includes("too many")
+              ? "⏳ Rate Limited"
+              : error.toLowerCase().includes("unreachable") || error.toLowerCase().includes("econnrefused")
+              ? "🔌 Backend Unreachable"
+              : error.toLowerCase().includes("503") || error.toLowerCase().includes("service unavailable")
+              ? "🚫 Service Unavailable"
+              : "❌ Analysis Failed"}
+          </div>
+          <div className="text-red-400/80">{error}</div>
+          {(error.toLowerCase().includes("rate") || error.toLowerCase().includes("too many")) && (
+            <div className="text-red-500/60 text-xs mt-1">Yahoo Finance rate-limits heavy usage. Wait 30–60 seconds and try again.</div>
+          )}
+          {(error.toLowerCase().includes("unreachable") || error.toLowerCase().includes("econnrefused")) && (
+            <div className="text-red-500/60 text-xs mt-1">Start the backend: <code className="bg-red-950 px-1 rounded">python backend/main.py</code></div>
+          )}
+        </div>
       )}
 
       {/* Result card */}

@@ -14,7 +14,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-# ── Load .env ─────────────────────────────────────────────────────────────────
+# ── Load .env (local dev only — Cloud Run uses env vars set at deploy time) ───
 _env_path = Path(__file__).parent.parent.parent / "gcp-app-w-mcp1" / "mcp-finance1" / ".env"
 if _env_path.exists():
     for _line in _env_path.read_text().splitlines():
@@ -23,8 +23,11 @@ if _env_path.exists():
             _k, _, _v = _line.partition("=")
             os.environ.setdefault(_k.strip(), _v.strip())
 
-# ── Add mcp-finance1 to path ──────────────────────────────────────────────────
-_mcp_path = Path(__file__).parent.parent.parent / "gcp-app-w-mcp1" / "mcp-finance1"
+# ── Add mcp source to path ────────────────────────────────────────────────────
+# Local: sibling gcp-app-w-mcp1/mcp-finance1   Cloud Run: /app (Dockerfile COPY src ./src)
+_local_mcp = Path(__file__).parent.parent.parent / "gcp-app-w-mcp1" / "mcp-finance1"
+_cloudrun_mcp = Path("/app")
+_mcp_path = _local_mcp if _local_mcp.exists() else _cloudrun_mcp
 sys.path.insert(0, str(_mcp_path))
 os.chdir(str(_mcp_path))
 
@@ -42,7 +45,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="Hold Em or Fold Em", version="5.0")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3001"],
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -62,13 +65,14 @@ def _get_firestore() -> MCPFirestoreCache | None:
     return _firestore if _firestore is not False else None
 
 
-async def _cached_or_fetch(tool_name: str, cache_key: str, fetch_coro):
+async def _cached_or_fetch(tool_name: str, cache_key: str, fetch_fn):
+    """fetch_fn is a zero-arg callable that returns a coroutine (avoids unawaited-coroutine warnings)."""
     fs = _get_firestore()
     if fs:
         doc = fs.read_tool_result(tool_name, cache_key)
         if doc and doc.get("result"):
             return doc["result"]
-    result = await fetch_coro
+    result = await fetch_fn()
     if fs and result:
         fs.write_tool_result(tool_name, cache_key, result)
     return result
@@ -769,22 +773,23 @@ async def analyze(req: AnalyzeRequest):
 
     cached = False
     try:
-        fib_coro  = _cached_or_fetch("analyze_fibonacci", symbol,
-                                     analyze_fibonacci(symbol, period=req.period))
-        opts_coro = (
-            _cached_or_fetch("options_risk_analysis", symbol, options_risk_analysis(symbol))
-            if req.options_strategy
-            else asyncio.sleep(0, result=None)
-        )
-        analysis_raw, trade_raw, fib_raw, opts_raw = await asyncio.gather(
-            _cached_or_fetch("analyze_security", symbol, analyze_security(symbol, period=req.period)),
-            _cached_or_fetch("get_trade_plan",   symbol, get_trade_plan(symbol, period=req.period)),
-            fib_coro, opts_coro,
+        analysis_raw, trade_raw, fib_raw = await asyncio.gather(
+            _cached_or_fetch("analyze_security", symbol, lambda: analyze_security(symbol, period=req.period)),
+            _cached_or_fetch("get_trade_plan",   symbol, lambda: get_trade_plan(symbol, period=req.period)),
+            _cached_or_fetch("analyze_fibonacci", symbol, lambda: analyze_fibonacci(symbol, period=req.period)),
         )
         cached = bool(analysis_raw.get("cached", False))
     except Exception as e:
         logger.error("Analysis failed for %s: %s", symbol, e)
         raise HTTPException(status_code=503, detail=f"Analysis failed: {e}")
+
+    # options_risk_analysis uses yfinance options chain — best-effort, non-fatal
+    opts_raw = None
+    if req.options_strategy:
+        try:
+            opts_raw = await _cached_or_fetch("options_risk_analysis", symbol, lambda: options_risk_analysis(symbol))
+        except Exception as e:
+            logger.warning("Options chain fetch failed for %s (non-fatal): %s", symbol, e)
 
     return _build_verdict(
         analysis=analysis_raw, trade=trade_raw,
@@ -796,3 +801,8 @@ async def analyze(req: AnalyzeRequest):
 async def health():
     fs = _get_firestore()
     return {"status": "ok", "version": app.version, "firestore": fs is not None}
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", "8080")))
