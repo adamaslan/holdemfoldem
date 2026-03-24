@@ -508,26 +508,24 @@ export default function Home() {
       </form>
 
       {/* Error */}
-      {error && (
-        <div className="mt-6 w-full max-w-lg rounded-xl border border-red-500/40 bg-red-950/30 p-4 text-sm space-y-1">
-          <div className="text-red-300 font-semibold">
-            {error.toLowerCase().includes("rate") || error.toLowerCase().includes("too many")
-              ? "⏳ Rate Limited"
-              : error.toLowerCase().includes("unreachable") || error.toLowerCase().includes("econnrefused")
-              ? "🔌 Backend Unreachable"
-              : error.toLowerCase().includes("503") || error.toLowerCase().includes("service unavailable")
-              ? "🚫 Service Unavailable"
-              : "❌ Analysis Failed"}
+      {error && (() => {
+        const e = error.toLowerCase();
+        const isRateLimit   = e.includes("rate") || e.includes("too many");
+        const isUnreachable = e.includes("unreachable") || e.includes("econnrefused");
+        const isUnavailable = e.includes("503") || e.includes("service unavailable");
+        const title = isRateLimit   ? "⏳ Rate Limited"
+                    : isUnreachable ? "🔌 Backend Unreachable"
+                    : isUnavailable ? "🚫 Service Unavailable"
+                    : "❌ Analysis Failed";
+        return (
+          <div className="mt-6 w-full max-w-lg rounded-xl border border-red-500/40 bg-red-950/30 p-4 text-sm space-y-1">
+            <div className="text-red-300 font-semibold">{title}</div>
+            <div className="text-red-400/80">{error}</div>
+            {isRateLimit   && <div className="text-red-500/60 text-xs mt-1">Yahoo Finance rate-limits heavy usage. Wait 30–60 seconds and try again.</div>}
+            {isUnreachable && <div className="text-red-500/60 text-xs mt-1">Start the backend: <code className="bg-red-950 px-1 rounded">python backend/main.py</code></div>}
           </div>
-          <div className="text-red-400/80">{error}</div>
-          {(error.toLowerCase().includes("rate") || error.toLowerCase().includes("too many")) && (
-            <div className="text-red-500/60 text-xs mt-1">Yahoo Finance rate-limits heavy usage. Wait 30–60 seconds and try again.</div>
-          )}
-          {(error.toLowerCase().includes("unreachable") || error.toLowerCase().includes("econnrefused")) && (
-            <div className="text-red-500/60 text-xs mt-1">Start the backend: <code className="bg-red-950 px-1 rounded">python backend/main.py</code></div>
-          )}
-        </div>
-      )}
+        );
+      })()}
 
       {/* Result card */}
       {verdict && (

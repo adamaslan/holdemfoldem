@@ -45,7 +45,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="Hold Em or Fold Em", version="5.0")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://localhost:3001,http://localhost:3002").split(","),
     allow_methods=["*"],
     allow_headers=["*"],
 )

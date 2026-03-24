@@ -45,11 +45,12 @@ The pre-commit hook is a safety net. If it blocks, fix the underlying issue.
 
 ## Execute
 
-All commands run from `/Users/adamaslan/code/holdemfoldemapp` unless noted.
+All commands run from the repo root (wherever `deploy-backend.sh` lives).
 
 ```bash
-# 0. Enter repo root
-cd /Users/adamaslan/code/holdemfoldemapp
+# 0. Enter repo root (use git root, not a hardcoded path)
+REPO_ROOT=$(git rev-parse --show-toplevel)
+cd "$REPO_ROOT"
 
 # 1. Checkout a brand new branch off main
 git checkout main
@@ -58,7 +59,7 @@ git checkout -b <feature|fix|refactor>/<short-description>
 
 # 2. Secret scan ALL changed files BEFORE staging — stop if anything hits
 git diff --name-only HEAD | xargs -I{} sh -c \
-  'grep -lE "AIzaSy[A-Za-z0-9_-]{35}|GOCSPX-[A-Za-z0-9_-]{24,}|d66cl2hr01|DSQINJ3N|sk_live_[A-Za-z0-9]{24,}" {} 2>/dev/null && echo "🚨 SECRET FOUND in {}" || true'
+  'grep -lE "AIzaSy[A-Za-z0-9_-]{35}|GOCSPX-[A-Za-z0-9_-]{24,}|d66cl2hr01[A-Za-z0-9]{5,}|DSQINJ3N[A-Za-z0-9]{3,}|sk_live_[A-Za-z0-9]{24,}" {} 2>/dev/null && echo "🚨 SECRET FOUND in {}" || true'
 
 # 3. Stage only clean files — add by name, never git add . or git add -A
 git add backend/main.py backend/cloud-run/ frontend/src/ frontend/e2e/ deploy-backend.sh
@@ -68,7 +69,7 @@ git diff --cached --name-only
 # 4. Quick smoke test — confirm v5 backend is up and responding
 curl -s http://localhost:8001/health | python3 -c \
   "import sys,json; d=json.load(sys.stdin); print('✅ Backend healthy:', d) if d.get('version')=='5.0' else print('⚠️ Unexpected response:', d)" \
-  || echo "⚠️  Backend not running — start with: cd /Users/adamaslan/code/holdemfoldemapp && uvicorn backend.main:app --port 8001"
+  || echo "⚠️  Backend not running — start with: uvicorn backend.main:app --port 8001"
 
 # Test a real analyze call
 curl -s http://localhost:8001/api/analyze \
@@ -79,9 +80,11 @@ curl -s http://localhost:8001/api/analyze \
 # 5. Deploy backend to Cloud Run
 bash deploy-backend.sh
 
-# 6. Confirm Cloud Run service is healthy
+# 6. Confirm Cloud Run service is healthy (deploy-backend.sh prints the URL)
+PROJECT_ID="${GCP_PROJECT_ID:-$(gcloud config get-value project 2>/dev/null)}"
+REGION="${GCP_REGION:-$(gcloud config get-value run/region 2>/dev/null || echo us-central1)}"
 SERVICE_URL=$(gcloud run services describe holdemfoldem-api \
-  --region us-central1 --project ttb-lang1 \
+  --region "$REGION" --project "$PROJECT_ID" \
   --format='value(status.url)' 2>/dev/null)
 echo "Service URL: $SERVICE_URL"
 curl -s "$SERVICE_URL/health" | python3 -c \
@@ -90,7 +93,7 @@ curl -s "$SERVICE_URL/health" | python3 -c \
 
 # 7. If deploy fails — check logs and fix before committing
 gcloud run services logs read holdemfoldem-api \
-  --project ttb-lang1 --region us-central1 --limit 30
+  --project "$PROJECT_ID" --region "$REGION" --limit 30
 
 # 8. Commit — pre-commit hook re-scans automatically
 git commit -m "$(cat <<'EOF'

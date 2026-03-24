@@ -42,17 +42,17 @@ ls "$BUILD_CTX"
 # ── Deploy ────────────────────────────────────────────────────────────────────
 cd "$BUILD_CTX"
 
-# Read API keys from the shared .env (same file the local backend uses)
-FINNHUB_KEY=$(grep "^FINNHUB_API_KEY=" "$MCP_SRC/.env" | cut -d= -f2-)
-AV_KEY=$(grep "^ALPHA_VANTAGE_KEY=" "$MCP_SRC/.env" | cut -d= -f2-)
-GEMINI_KEY=$(grep "^GEMINI_API_KEY=" "$MCP_SRC/.env" | cut -d= -f2-)
+# API keys are stored in GCP Secret Manager (never passed as plain env vars)
+# Secrets must exist: FINNHUB_API_KEY, ALPHA_VANTAGE_KEY, GEMINI_API_KEY
+# To create/update: gcloud secrets versions add SECRET_NAME --data-file=-
 
 gcloud run deploy "$SERVICE" \
     --source . \
     --region "$REGION" \
     --project "$PROJECT_ID" \
     --allow-unauthenticated \
-    --set-env-vars="GCP_PROJECT_ID=$PROJECT_ID,FINNHUB_API_KEY=$FINNHUB_KEY,ALPHA_VANTAGE_KEY=$AV_KEY,GEMINI_API_KEY=$GEMINI_KEY" \
+    --set-env-vars="GCP_PROJECT_ID=$PROJECT_ID" \
+    --set-secrets="FINNHUB_API_KEY=FINNHUB_API_KEY:latest,ALPHA_VANTAGE_KEY=ALPHA_VANTAGE_KEY:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest" \
     --memory=1Gi \
     --cpu=1 \
     --min-instances=0 \
