@@ -287,10 +287,13 @@ export default function Home() {
     e.preventDefault();
     if (!symbol.trim()) return;
     setLoading(true); setError(null); setVerdict(null);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30_000);
     try {
       const res = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
         body: JSON.stringify({
           symbol:           symbol.toUpperCase(),
           period,
@@ -313,7 +316,12 @@ export default function Home() {
         throw new Error(msg);
       }
       setVerdict(await res.json());
-    } catch (e) { setError(String(e).replace(/^Error:\s*/, "")); } finally { setLoading(false); }
+    } catch (e) {
+      const msg = e instanceof DOMException && e.name === "AbortError"
+        ? "Request timed out after 30 seconds — the backend may be starting up. Try again."
+        : String(e).replace(/^Error:\s*/, "");
+      setError(msg);
+    } finally { clearTimeout(timeout); setLoading(false); }
   }
 
   const vc = verdict?.verdict === "HOLD EM"
@@ -345,19 +353,22 @@ export default function Home() {
         {/* Ticker */}
         <div className="relative">
           <input type="text" autoFocus
+            aria-label="Ticker symbol"
             placeholder="AAPL · SPY · QQQ · BTC-USD"
             value={symbol}
             onChange={(e) => setSymbol(e.target.value.toUpperCase())}
             className="w-full rounded-xl border border-gray-700 bg-gray-900 px-4 py-4 text-2xl font-black uppercase tracking-widest focus:outline-none focus:ring-2 focus:ring-green-500 placeholder:text-gray-700 placeholder:font-normal placeholder:text-sm placeholder:tracking-normal placeholder:normal-case"
           />
           {symbol && (
-            <button type="button" onClick={() => setSymbol("")}
+            <button type="button" aria-label="Clear symbol" onClick={() => setSymbol("")}
               className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-600 hover:text-gray-400 text-lg">×</button>
           )}
         </div>
 
         {/* Options toggle */}
         <button type="button"
+          aria-label="Toggle options strategy panel"
+          aria-expanded={showOptions}
           onClick={() => { setShowOptions((x) => !x); if (showOptions) resetOptions(); }}
           className={`rounded-xl border py-2.5 text-sm font-bold transition-all ${showOptions ? "border-purple-500 bg-purple-900/20 text-purple-300" : "border-gray-700 bg-gray-900/50 text-gray-500 hover:text-gray-300"}`}>
           {showOptions ? "⚡ Options Mode" : "⚡ Add Options Strategy"}
@@ -874,9 +885,16 @@ export default function Home() {
           </div>
 
           {/* Footer */}
-          <div className="border-t border-gray-800/50 px-6 py-3 flex justify-between text-[9px] text-gray-700">
+          <div className="border-t border-gray-800/50 px-6 py-3 flex items-center justify-between text-[9px] text-gray-700">
             <span>Hold Em / Fold Em · Fibonacci · Options payoff · Firestore cache</span>
-            <span className="uppercase tracking-wide">{verdict.asset_type} · {period}</span>
+            <div className="flex items-center gap-3">
+              <span className="uppercase tracking-wide">{verdict.asset_type} · {period}</span>
+              <button type="button"
+                onClick={() => { setVerdict(null); setSymbol(""); setError(null); resetOptions(); setShowPos(false); setPosEntry(""); setPosQty(""); }}
+                className="text-gray-500 hover:text-white text-[10px] font-bold uppercase tracking-wide transition-colors">
+                New Analysis
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -7,12 +7,16 @@ import asyncio
 import logging
 import math
 import os
+import re
 import sys
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+
+# Valid ticker: 1-12 alphanumeric chars, optional dots/hyphens (e.g. BRK.B, BTC-USD)
+_SYMBOL_RE = re.compile(r"^[A-Z0-9][A-Z0-9.\-]{0,11}$")
 
 # ── Load .env (local dev only — Cloud Run uses env vars set at deploy time) ───
 _env_path = Path(__file__).parent.parent.parent / "gcp-app-w-mcp1" / "mcp-finance1" / ".env"
@@ -39,7 +43,22 @@ from src.technical_analysis_mcp.server import (  # noqa: E402
 )
 from src.technical_analysis_mcp.cache.firestore_cache import MCPFirestoreCache  # noqa: E402
 
-logging.basicConfig(level=logging.INFO)
+# ── Logging ───────────────────────────────────────────────────────────────────
+# On Cloud Run, K_SERVICE is set automatically — use google-cloud-logging so
+# logs appear in Cloud Console with severity, trace, and request correlation.
+# Locally, fall back to plain basicConfig so terminal output stays readable.
+if os.getenv("K_SERVICE"):
+    try:
+        import google.cloud.logging as gcl
+        gcl.Client().setup_logging(log_level=logging.INFO)
+    except Exception:
+        logging.basicConfig(level=logging.INFO)
+else:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)-8s %(name)s  %(message)s",
+        datefmt="%H:%M:%S",
+    )
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Hold Em or Fold Em", version="5.0")
@@ -767,6 +786,8 @@ async def analyze(req: AnalyzeRequest):
     symbol = req.symbol.upper().strip()
     if not symbol:
         raise HTTPException(status_code=400, detail="Symbol required")
+    if not _SYMBOL_RE.match(symbol):
+        raise HTTPException(status_code=400, detail=f"Invalid symbol: '{symbol}'. Use 1-12 alphanumeric characters (e.g. AAPL, BTC-USD).")
 
     logger.info("Analyzing %s period=%s strategy=%s dte=%s premium=%s",
                 symbol, req.period, req.options_strategy, req.dte, req.net_premium)
