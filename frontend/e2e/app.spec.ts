@@ -58,23 +58,26 @@ test("period pill buttons have correct labels", async ({ page }) => {
 test("options strategy panel toggles open and shows strategies", async ({ page }) => {
   await page.goto("/");
 
-  // Panel should be hidden initially
-  await expect(page.getByText("Strategy")).not.toBeVisible();
+  // DTE label is inside the panel; should be hidden initially
+  const dteLabel = page.getByText("Days to Expiration (DTE)");
+  await expect(dteLabel).not.toBeVisible();
 
-  // Click toggle to open
-  await page.getByRole("button", { name: /options strategy/i }).click();
-  await expect(page.getByText("Strategy")).toBeVisible();
+  // Click toggle button to open options panel
+  const toggleButton = page.locator("button").filter({ hasText: /Add Options Strategy/i });
+  await toggleButton.click();
+  await expect(dteLabel).toBeVisible();
   await expect(page.getByRole("button", { name: /Long Call/i })).toBeVisible();
   await expect(page.getByRole("button", { name: /Iron Condor/i })).toBeVisible();
 
-  // Click toggle again to close
-  await page.getByRole("button", { name: /options mode/i }).click();
-  await expect(page.getByText("Strategy")).not.toBeVisible();
+  // Click toggle button again to close
+  const toggleClosedButton = page.locator("button").filter({ hasText: /Options Mode/i });
+  await toggleClosedButton.click();
+  await expect(dteLabel).not.toBeVisible();
 });
 
 // ─── 6. Backend error surfaces a human-readable message in the UI ─────────────
 test("shows error message when backend returns an error", async ({ page }) => {
-  // Intercept the Next.js API route and return a backend-style error
+  // Set up route interception before navigation
   await page.route("**/api/analyze", async (route) => {
     await route.fulfill({
       status: 503,
@@ -87,8 +90,6 @@ test("shows error message when backend returns an error", async ({ page }) => {
   await page.getByPlaceholder("AAPL · SPY · QQQ · BTC-USD").fill("SPY");
   await page.getByRole("button", { name: /analyze/i }).click();
 
-  // Should display an error — not crash or hang
-  await expect(
-    page.locator("text=Backend unavailable").or(page.locator("[class*='red']").first())
-  ).toBeVisible({ timeout: 8_000 });
+  // Should display error message or red-colored error container
+  await expect(page.locator("text=Backend unavailable")).toBeVisible({ timeout: 10_000 });
 });
