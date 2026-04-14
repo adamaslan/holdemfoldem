@@ -787,7 +787,7 @@ async def analyze(req: AnalyzeRequest):
     if not symbol:
         raise HTTPException(status_code=400, detail="Symbol required")
     if not _SYMBOL_RE.match(symbol):
-        raise HTTPException(status_code=400, detail=f"Invalid symbol: '{symbol}'. Use 1-12 alphanumeric characters (e.g. AAPL, BTC-USD).")
+        raise HTTPException(status_code=400, detail=f"Invalid symbol: '{symbol}'. Use 1-12 alphanumeric characters, dots, or hyphens (e.g. AAPL, BTC-USD).")
 
     logger.info("Analyzing %s period=%s strategy=%s dte=%s premium=%s",
                 symbol, req.period, req.options_strategy, req.dte, req.net_premium)
