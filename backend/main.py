@@ -1,9 +1,11 @@
 """
-Hold Em or Fold Em — Backend v5
-Proper options payoff math using strikes, net premium (credit/debit), and underlying price.
+Hold Em or Fold Em — Backend v6
+Multi-lot position model, dated cost-basis pipeline, FIFO/LIFO/avg methods,
+split-adjustment, fee inclusion, PositionAging, and legal disclaimer versioning.
 """
 
 import asyncio
+import datetime as _dt
 import logging
 import math
 import os
@@ -11,10 +13,11 @@ import re
 import sys
 import uuid
 from pathlib import Path
+from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 # Valid ticker: 1-12 alphanumeric chars, optional dots/hyphens (e.g. BRK.B, BTC-USD)
 _SYMBOL_RE = re.compile(r"^[A-Z0-9][A-Z0-9.\-]{0,11}$")
@@ -90,16 +93,18 @@ _FIRESTORE_CACHE_TTL_SECONDS = 3600  # 1 hour — prevents stale cached schemas
 
 async def _cached_or_fetch(tool_name: str, cache_key: str, fetch_fn):
     """fetch_fn is a zero-arg callable that returns a coroutine (avoids unawaited-coroutine warnings)."""
-    import datetime as _dt
     fs = _get_firestore()
     if fs:
         doc = fs.read_tool_result(tool_name, cache_key)
         if doc and doc.get("result"):
             updated_at = doc.get("updated_at")
-            fresh = True
+            fresh = False
             if updated_at:
                 try:
-                    age = (_dt.datetime.utcnow() - _dt.datetime.fromisoformat(updated_at)).total_seconds()
+                    dt_upd = updated_at if isinstance(updated_at, _dt.datetime) else _dt.datetime.fromisoformat(updated_at)
+                    if dt_upd.tzinfo is None:
+                        dt_upd = dt_upd.replace(tzinfo=_dt.timezone.utc)
+                    age = (_dt.datetime.now(_dt.timezone.utc) - dt_upd).total_seconds()
                     fresh = age < _FIRESTORE_CACHE_TTL_SECONDS
                 except Exception:
                     pass
@@ -160,13 +165,54 @@ BEARISH_STRATEGIES    = {"long_put", "bear_put_spread"}
 # Everything else is treated as bullish-leaning
 
 
+# ── Date helpers ──────────────────────────────────────────────────────────────
+
+_ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}(T[\d:.+-]+)?$")
+
+
+def _parse_acquired_at(value: str | None) -> _dt.date | None:
+    """Accept YYYY-MM-DD or full ISO-8601. Reject ambiguous formats."""
+    if not value:
+        return None
+    if not _ISO_DATE_RE.match(value):
+        raise ValueError(f"acquired_at must be ISO 8601 (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS±HH:MM), got: {value!r}")
+    try:
+        if "T" in value:
+            return _dt.datetime.fromisoformat(value).date()
+        return _dt.date.fromisoformat(value)
+    except ValueError as e:
+        raise ValueError(f"Invalid acquired_at: {e}") from e
+
+
 # ── Request / Response models ─────────────────────────────────────────────────
+
+DISCLAIMER_VERSION = "1.0"
+
 
 class OptionsLegRequest(BaseModel):
     role:    str
     strike:  float | None = None
     expiry:  str   | None = None
     premium: float | None = None  # reserved for per-leg premium (currently unused)
+
+
+class PositionLot(BaseModel):
+    """A single tax lot within a position."""
+    qty:          float
+    cost_basis:   float                     # per-share/per-contract cost, pre-fee (fees handled separately)
+    acquired_at:  str | None = None         # ISO 8601 date string
+    side:         Literal["long", "short"] = "long"
+    fees_total:   float | None = None       # total commissions + fees for this lot (absolute $)
+    account_type: Literal["taxable", "ira", "roth", "401k", "margin", "cash"] | None = None
+    lot_id:       str | None = None         # client-supplied stable ID
+    notes:        str | None = Field(default=None, max_length=120)
+
+    @field_validator("acquired_at", mode="before")
+    @classmethod
+    def validate_acquired_at(cls, v: object) -> object:
+        if v is not None and isinstance(v, str):
+            _parse_acquired_at(v)  # raises on bad format
+        return v
 
 
 class AnalyzeRequest(BaseModel):
@@ -183,15 +229,49 @@ class AnalyzeRequest(BaseModel):
     # Optional underlying price bounds for payoff chart
     spot_low:         float | None = None
     spot_high:        float | None = None
-    # Existing position
+    # Legacy single-lot position (kept for backward compat)
     position_qty:     float | None = None
     position_entry:   float | None = None
     position_side:    str          = "long"
+    # New multi-lot position model
+    position_lots:        list[PositionLot] | None = None
+    cost_basis_method:    Literal["fifo", "lifo", "average", "specific"] = "average"
+    include_dividends:    bool = False
+    adjust_for_splits:    bool = True
 
 
 class SuppressionInfo(BaseModel):
     code:  str
     label: str
+
+
+class PositionAging(BaseModel):
+    earliest_acquired:     str    # ISO date string of oldest lot
+    weighted_avg_age_days: float  # weighted by qty
+    long_term_pct:         float  # % of qty held > 365 days
+    short_term_pct:        float  # % of qty held <= 365 days
+
+
+class LotPnL(BaseModel):
+    lot_id:               str | None
+    qty:                  float
+    cost_basis_effective: float   # per-share after fees + split adjustment
+    acquired_at:          str | None
+    side:                 str
+    unrealized_dollar:    float
+    unrealized_pct:       float
+
+
+class PositionPnL(BaseModel):
+    unrealized_dollar:         float
+    unrealized_pct:            float
+    realized_dollar:           float          # dividends only until lot-sell tracking exists
+    fees_paid_total:           float
+    dividends_received:        float | None
+    split_adjustments_applied: int            # count of split events applied
+    cost_basis_effective:      float          # weighted avg per-share, post-fee, post-split
+    cost_basis_method:         str
+    breakdown_by_lot:          list[LotPnL] | None
 
 
 class FibLevel(BaseModel):
@@ -263,7 +343,7 @@ class HoldFoldVerdict(BaseModel):
     primary_signal:    str   | None
     supporting_signals: list[str]
 
-    # ── Position P&L ──────────────────────────────────────────────────────────
+    # ── Position P&L — legacy flat fields (kept for compat) ──────────────────
     position_qty:       float | None
     position_entry:     float | None
     position_side:      str
@@ -271,6 +351,10 @@ class HoldFoldVerdict(BaseModel):
     position_pnl_dollar: float | None
     position_vs_stop:   str   | None
     position_vs_target: str   | None
+
+    # ── Position P&L — rich fields (new) ──────────────────────────────────────
+    position_aging:      PositionAging | None = None
+    position_pnl_detail: PositionPnL   | None = None
 
     # ── Fibonacci ─────────────────────────────────────────────────────────────
     fib_levels:             list[FibLevel]
@@ -297,9 +381,10 @@ class HoldFoldVerdict(BaseModel):
     data_timestamp: str | None
 
     # ── Robustness metadata ───────────────────────────────────────────────────
-    degraded:       bool = False          # True if pipeline ran in degraded mode
-    warnings:       list[str] = Field(default_factory=list)  # structured warning codes
-    request_id:     str | None = None     # echoed in X-Request-Id header
+    degraded:            bool = False          # True if pipeline ran in degraded mode
+    warnings:            list[str] = Field(default_factory=list)
+    request_id:          str | None = None     # echoed in X-Request-Id header
+    disclaimer_version:  str = DISCLAIMER_VERSION
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -322,6 +407,157 @@ def _risk_level(avg_score: float, rr: float | None, atr_pct: float | None) -> st
     if atr_pct is not None and atr_pct > 3.0: score += 1
     if atr_pct is not None and atr_pct > 5.0: score += 1
     return ["low", "medium", "high", "extreme"][min(score, 3)]
+
+
+# ── Multi-lot P&L pipeline ────────────────────────────────────────────────────
+
+def _effective_cost_basis(lot: PositionLot) -> float:
+    """Per-share cost basis including fees."""
+    if lot.fees_total and lot.qty > 0:
+        fee_per_share = lot.fees_total / lot.qty
+        return lot.cost_basis + fee_per_share
+    return lot.cost_basis
+
+
+def _apply_splits(lots: list[PositionLot], splits: list[dict]) -> tuple[list[PositionLot], int]:
+    """
+    Retroactively adjust lot qty and cost_basis for stock splits that occurred
+    after each lot's acquisition date. Returns adjusted lots and count of events applied.
+    splits: list of {"date": date, "ratio": float} dicts, sorted oldest-first.
+    """
+    if not splits:
+        return lots, 0
+    adjusted = []
+    total_adjustments = 0
+    for lot in lots:
+        lot_date = _parse_acquired_at(lot.acquired_at)
+        new_qty   = lot.qty
+        new_basis = lot.cost_basis
+        for split in splits:
+            split_date = split["date"]
+            ratio      = split["ratio"]
+            if lot_date is not None and lot_date < split_date and ratio and ratio != 1.0:
+                new_qty   = new_qty * ratio
+                new_basis = new_basis / ratio
+                total_adjustments += 1
+        adjusted.append(lot.model_copy(update={"qty": new_qty, "cost_basis": new_basis}))
+    return adjusted, total_adjustments
+
+
+def _compute_aging(lots: list[PositionLot], as_of: _dt.date) -> PositionAging | None:
+    """Compute weighted-average age and long/short-term breakdown."""
+    if not lots:
+        return None
+    dated = [(lot, _parse_acquired_at(lot.acquired_at)) for lot in lots]
+    dated_known = [(lot, d) for lot, d in dated if d is not None]
+    if not dated_known:
+        return None
+    total_qty = sum(lot.qty for lot, _ in dated_known)
+    if total_qty == 0:
+        return None
+    earliest = min(d for _, d in dated_known)
+    weighted_age = sum(
+        ((as_of - d).days * lot.qty) for lot, d in dated_known
+    ) / total_qty
+    long_term_qty  = sum(lot.qty for lot, d in dated_known if (as_of - d).days > 365)
+    short_term_qty = sum(lot.qty for lot, d in dated_known if (as_of - d).days <= 365)
+    total_for_split = long_term_qty + short_term_qty
+    return PositionAging(
+        earliest_acquired=earliest.isoformat(),
+        weighted_avg_age_days=round(weighted_age, 1),
+        long_term_pct=round(long_term_qty / total_for_split * 100, 1) if total_for_split else 0.0,
+        short_term_pct=round(short_term_qty / total_for_split * 100, 1) if total_for_split else 0.0,
+    )
+
+
+def _compute_lots_pnl(
+    lots: list[PositionLot],
+    current_price: float,
+    method: str,
+    split_adjustments: int,
+    dividends_received: float | None,
+) -> PositionPnL:
+    """
+    Compute full P&L across all lots using the specified cost-basis method.
+    For 'fifo' and 'lifo' the order affects which lots are theoretically matched first
+    in a realized context; since we only track unrealized here, method affects the
+    effective-basis display and the per-lot sorting.
+    """
+    if method == "fifo":
+        ordered = sorted(lots, key=lambda lot: (_parse_acquired_at(lot.acquired_at) or _dt.date.min))
+    elif method == "lifo":
+        ordered = sorted(lots, key=lambda lot: (_parse_acquired_at(lot.acquired_at) or _dt.date.min), reverse=True)
+    else:
+        ordered = lots  # average / specific — order doesn't affect the weighted avg
+
+    total_qty   = sum(lot.qty for lot in ordered)
+    fees_total  = sum(lot.fees_total or 0.0 for lot in ordered)
+
+    # Weighted average effective cost basis
+    if total_qty > 0:
+        weighted_basis = sum(_effective_cost_basis(lot) * lot.qty for lot in ordered) / total_qty
+    else:
+        weighted_basis = 0.0
+
+    # Unrealized P&L (using first lot's side for sign — mixed sides not yet supported)
+    side   = ordered[0].side if ordered else "long"
+    mult   = 1 if side == "long" else -1
+    unrealized_dollar = sum(
+        (current_price - _effective_cost_basis(lot)) * lot.qty * mult
+        for lot in ordered
+    )
+    unrealized_pct = ((current_price - weighted_basis) / weighted_basis * 100 * mult) if weighted_basis else 0.0
+
+    realized_dollar = dividends_received or 0.0
+
+    lot_breakdown = [
+        LotPnL(
+            lot_id=lot.lot_id,
+            qty=round(lot.qty, 6),
+            cost_basis_effective=round(_effective_cost_basis(lot), 4),
+            acquired_at=lot.acquired_at,
+            side=lot.side,
+            unrealized_dollar=round(
+                (current_price - _effective_cost_basis(lot)) * lot.qty * (1 if lot.side == "long" else -1), 4
+            ),
+            unrealized_pct=round(
+                (current_price - _effective_cost_basis(lot)) / _effective_cost_basis(lot) * 100
+                * (1 if lot.side == "long" else -1), 2
+            ) if _effective_cost_basis(lot) else 0.0,
+        )
+        for lot in ordered
+    ]
+
+    return PositionPnL(
+        unrealized_dollar=round(unrealized_dollar, 4),
+        unrealized_pct=round(unrealized_pct, 2),
+        realized_dollar=round(realized_dollar, 4),
+        fees_paid_total=round(fees_total, 4),
+        dividends_received=dividends_received,
+        split_adjustments_applied=split_adjustments,
+        cost_basis_effective=round(weighted_basis, 4),
+        cost_basis_method=method,
+        breakdown_by_lot=lot_breakdown if len(ordered) > 1 else None,
+    )
+
+
+def _canonicalize_lots(req: AnalyzeRequest) -> list[PositionLot] | None:
+    """
+    Merge legacy single-lot fields and new position_lots into a unified list.
+    Legacy fields take precedence only if position_lots is absent.
+    """
+    if req.position_lots:
+        return req.position_lots
+    if req.position_entry is not None:
+        side: Literal["long", "short"] = "short" if req.position_side == "short" else "long"
+        return [PositionLot(
+            qty=req.position_qty or 1.0,
+            cost_basis=req.position_entry,
+            side=side,
+            acquired_at=None,
+            fees_total=None,
+        )]
+    return None
 
 
 def _position_eval(
@@ -673,9 +909,43 @@ def _build_verdict(
     vol_regime = _volatility_regime(atr, price)
     risk_lvl   = _risk_level(avg_score, rr, atr_pct)
 
-    pnl_pct, pnl_dollar, vs_stop, vs_target = _position_eval(
-        price, req.position_entry, stop, target, req.position_qty, req.position_side
-    )
+    # ── Multi-lot P&L pipeline ────────────────────────────────────────────────
+    as_of_date = _dt.datetime.now(_dt.timezone.utc).date()
+    canonical_lots = _canonicalize_lots(req)
+
+    position_aging:      PositionAging | None = None
+    position_pnl_detail: PositionPnL   | None = None
+
+    if canonical_lots and price:
+        # Split adjustment (best-effort — no split data fetched at this layer)
+        adjusted_lots, split_count = _apply_splits(canonical_lots, [])
+        position_aging = _compute_aging(adjusted_lots, as_of_date)
+        position_pnl_detail = _compute_lots_pnl(
+            lots=adjusted_lots,
+            current_price=price,
+            method=req.cost_basis_method,
+            split_adjustments=split_count,
+            dividends_received=None,
+        )
+
+    # Legacy flat P&L fields (derived from new pipeline when available, else old formula)
+    if position_pnl_detail:
+        pnl_pct    = position_pnl_detail.unrealized_pct
+        pnl_dollar = position_pnl_detail.unrealized_dollar / max(
+            sum(lot.qty for lot in (canonical_lots or [])), 1
+        )
+        # vs_stop / vs_target still use old helper (stop/target come from trade plan)
+        _, _, vs_stop, vs_target = _position_eval(
+            price, req.position_entry, stop, target, req.position_qty, req.position_side
+        )
+    else:
+        pnl_pct, pnl_dollar, vs_stop, vs_target = _position_eval(
+            price, req.position_entry, stop, target, req.position_qty, req.position_side
+        )
+
+    # Annotate summary with aging when held > 1 year
+    if position_aging and position_aging.long_term_pct > 0:
+        pass  # appended to summary parts below
 
     fib_levels, fib_zones, nearest_support, nearest_resistance = _extract_fib_levels(fib, price)
 
@@ -744,10 +1014,19 @@ def _build_verdict(
         parts.append(f"Underlying plan: entry ${entry:.2f} → target ${target:.2f}, stop ${stop:.2f} ({rr:.2f}x R/R).")
     elif suppressions:
         parts.append(f"No trade plan: {suppressions[0].label}.")
-    if req.position_entry and pnl_pct is not None:
+    # Pick best entry price for summary (effective weighted avg if multi-lot, else legacy)
+    _summary_entry = (
+        position_pnl_detail.cost_basis_effective
+        if position_pnl_detail
+        else req.position_entry
+    )
+    if _summary_entry and pnl_pct is not None:
+        aging_note = ""
+        if position_aging and position_aging.weighted_avg_age_days > 365:
+            aging_note = f" Avg holding {int(position_aging.weighted_avg_age_days // 30)}mo."
         parts.append(
-            f"Your position: entered at ${req.position_entry:.2f}, "
-            f"currently {'+' if pnl_pct >= 0 else ''}{pnl_pct:.1f}%."
+            f"Your position: cost basis ${_summary_entry:.2f}, "
+            f"currently {'+' if pnl_pct >= 0 else ''}{pnl_pct:.1f}%.{aging_note}"
         )
     if nearest_support:
         parts.append(f"Nearest Fib support ${nearest_support:.2f}.")
@@ -811,13 +1090,18 @@ def _build_verdict(
         risk_reward=rr, stop_pct=stop_pct, upside_pct=upside_pct,
         vehicle=vehicle, vehicle_notes=vehicle_notes,
         primary_signal=primary_signal, supporting_signals=supporting,
-        position_qty=req.position_qty,
-        position_entry=req.position_entry,
-        position_side=req.position_side,
+        position_qty=sum(lot.qty for lot in canonical_lots) if canonical_lots else req.position_qty,
+        position_entry=(
+            position_pnl_detail.cost_basis_effective if position_pnl_detail
+            else req.position_entry
+        ),
+        position_side=(canonical_lots[0].side if canonical_lots else req.position_side),
         position_pnl_pct=pnl_pct,
         position_pnl_dollar=pnl_dollar,
         position_vs_stop=vs_stop,
         position_vs_target=vs_target,
+        position_aging=position_aging,
+        position_pnl_detail=position_pnl_detail,
         fib_levels=fib_levels,
         fib_confluence_zones=fib_zones,
         nearest_fib_support=nearest_support,
@@ -839,6 +1123,7 @@ def _build_verdict(
         degraded=degraded,
         warnings=build_warnings,
         request_id=request_id,
+        disclaimer_version=DISCLAIMER_VERSION,
     )
 
 
