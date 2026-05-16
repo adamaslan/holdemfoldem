@@ -8,9 +8,48 @@ interface OptionsLeg {
   role: string;
   strike: number | null;
   expiry: string | null;
-  premium: number | null;       // per-share premium for this leg
+  premium: number | null;
 }
 interface PayoffPoint { price: number; pnl: number }
+
+interface LotPnL {
+  lot_id: string | null;
+  qty: number;
+  cost_basis_effective: number;
+  acquired_at: string | null;
+  side: string;
+  unrealized_dollar: number;
+  unrealized_pct: number;
+}
+interface PositionAging {
+  earliest_acquired: string;
+  weighted_avg_age_days: number;
+  long_term_pct: number;
+  short_term_pct: number;
+}
+interface PositionPnL {
+  unrealized_dollar: number;
+  unrealized_pct: number;
+  realized_dollar: number;
+  fees_paid_total: number;
+  dividends_received: number | null;
+  split_adjustments_applied: number;
+  cost_basis_effective: number;
+  cost_basis_method: string;
+  breakdown_by_lot: LotPnL[] | null;
+}
+
+// Form-side lot state
+interface LotForm {
+  id: string;           // client-only stable key
+  costBasis: string;
+  qty: string;
+  acquiredAt: string;   // YYYY-MM-DD
+  side: "long" | "short";
+  feesTotal: string;
+  accountType: string;
+}
+
 interface Verdict {
   symbol: string; asset_type: string; verdict: "HOLD EM" | "FOLD EM" | "NEUTRAL";
   confidence: number; price: number; bias: string; risk_level: string; cached: boolean;
@@ -25,21 +64,24 @@ interface Verdict {
   position_qty: number | null; position_entry: number | null; position_side: string;
   position_pnl_pct: number | null; position_pnl_dollar: number | null;
   position_vs_stop: string | null; position_vs_target: string | null;
+  position_aging: PositionAging | null;
+  position_pnl_detail: PositionPnL | null;
   fib_levels: FibLevel[]; fib_confluence_zones: { price: number; strength: string; signal_count: number; confluence_score: number }[];
   nearest_fib_support: number | null; nearest_fib_resistance: number | null;
   options_greeks: { iv: number | null; pcr: number | null; delta_atm: number | null; theta_atm: number | null; vega_atm: number | null } | null;
   options_strategy: string | null;
   options_legs: OptionsLeg[] | null;
   dte: number | null;
-  net_premium: number | null;        // net credit (+) or debit (-)
+  net_premium: number | null;
   max_profit: number | null;
   max_loss: number | null;
   breakeven_prices: number[] | null;
-  spread_width: number | null;       // for spreads: distance between strikes
-  pop: number | null;                // probability of profit estimate
+  spread_width: number | null;
+  pop: number | null;
   strategy_note: string | null;
   payoff_curve: PayoffPoint[] | null;
   summary: string; data_timestamp: string | null;
+  disclaimer_version: string | null;
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -231,6 +273,13 @@ function PayoffChart({ points, currentPrice }: { points: PayoffPoint[]; currentP
   );
 }
 
+// ── Lot helpers ──────────────────────────────────────────────────────────────
+const ACCOUNT_TYPES = ["taxable", "ira", "roth", "401k", "margin", "cash"] as const;
+
+function newLot(): LotForm {
+  return { id: Math.random().toString(36).slice(2), costBasis: "", qty: "", acquiredAt: "", side: "long", feesTotal: "", accountType: "taxable" };
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 export default function Home() {
   const [symbol, setSymbol]           = useState("");
@@ -253,11 +302,15 @@ export default function Home() {
   const [spotLow, setSpotLow]   = useState("");   // lower price anchor for payoff chart
   const [spotHigh, setSpotHigh] = useState("");   // upper price anchor
 
-  // Existing position
+  // Existing position — multi-lot
+  const [showPos, setShowPos]       = useState(false);
+  const [lots, setLots]             = useState<LotForm[]>([newLot()]);
+  const [costBasisMethod, setCostBasisMethod] = useState<"average"|"fifo"|"lifo">("average");
+
+  // Legacy single-lot (kept so resetOptions works cleanly)
   const [posEntry, setPosEntry] = useState("");
   const [posQty, setPosQty]     = useState("");
   const [posSide, setPosSide]   = useState("long");
-  const [showPos, setShowPos]   = useState(false);
 
   const [verdict, setVerdict] = useState<Verdict | null>(null);
   const [loading, setLoading] = useState(false);
@@ -290,6 +343,33 @@ export default function Home() {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 30_000);
     try {
+      // Build position payload — multi-lot when showPos is active
+      const activeLots = showPos
+        ? lots.filter((l) => l.costBasis && l.qty)
+        : [];
+      const positionPayload = activeLots.length > 0
+        ? {
+            position_lots: activeLots.map((l) => ({
+              qty:          parseFloat(l.qty),
+              cost_basis:   parseFloat(l.costBasis),
+              acquired_at:  l.acquiredAt || null,
+              side:         l.side,
+              fees_total:   l.feesTotal ? parseFloat(l.feesTotal) : null,
+              account_type: l.accountType || null,
+              lot_id:       l.id,
+            })),
+            cost_basis_method: costBasisMethod,
+            // Legacy compat: use first lot values so old backend fields stay populated
+            position_entry: parseFloat(activeLots[0].costBasis),
+            position_qty:   activeLots.reduce((s, l) => s + parseFloat(l.qty), 0),
+            position_side:  activeLots[0].side,
+          }
+        : {
+            position_entry: posEntry ? parseFloat(posEntry) : null,
+            position_qty:   posQty   ? parseFloat(posQty)   : null,
+            position_side:  posSide,
+          };
+
       const res = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -302,12 +382,10 @@ export default function Home() {
           options_legs:     buildLegsPayload(),
           dte:              effectiveDte ?? null,
           net_premium:      netPremium ? parseFloat(netPremium) : null,
-          premium_sign:     selectedStrat?.premiumSign ?? null, // +1 credit, -1 debit
+          premium_sign:     selectedStrat?.premiumSign ?? null,
           spot_low:         spotLow  ? parseFloat(spotLow)  : null,
           spot_high:        spotHigh ? parseFloat(spotHigh) : null,
-          position_entry:   posEntry ? parseFloat(posEntry) : null,
-          position_qty:     posQty   ? parseFloat(posQty)   : null,
-          position_side:    posSide,
+          ...positionPayload,
         }),
       });
       if (!res.ok) {
@@ -482,24 +560,88 @@ export default function Home() {
         </button>
 
         {showPos && (
-          <div className="rounded-xl border border-gray-800 bg-gray-900/50 p-4 flex flex-col gap-3">
-            <div className="flex gap-2">
-              <div className="flex-1">
-                <div className="text-gray-600 text-[9px] uppercase tracking-widest mb-1">Cost Basis / Share</div>
-                <input type="number" step="0.01" min="0" placeholder="e.g. 182.50"
-                  value={posEntry} onChange={(e) => setPosEntry(e.target.value)}
-                  className="w-full rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-green-500" />
+          <div className="rounded-xl border border-gray-800 bg-gray-900/50 p-4 flex flex-col gap-4">
+
+            {/* Lot cards */}
+            {lots.map((lot, idx) => {
+              const setLot = (patch: Partial<LotForm>) =>
+                setLots((prev) => prev.map((l, i) => i === idx ? { ...l, ...patch } : l));
+              return (
+                <div key={lot.id} className="flex flex-col gap-2 rounded-lg border border-gray-700/60 p-3 relative">
+                  {/* Lot header */}
+                  <div className="flex items-center justify-between mb-0.5">
+                    <span className="text-gray-500 text-[9px] uppercase tracking-widest font-bold">Lot {idx + 1}</span>
+                    {lots.length > 1 && (
+                      <button type="button" onClick={() => setLots((prev) => prev.filter((_, i) => i !== idx))}
+                        className="text-gray-600 hover:text-red-400 text-xs transition-colors">×</button>
+                    )}
+                  </div>
+
+                  {/* Row 1: cost basis, qty, date */}
+                  <div className="flex gap-2">
+                    <div className="flex-1">
+                      <div className="text-gray-600 text-[9px] uppercase tracking-widest mb-1">Cost Basis / Share</div>
+                      <input type="number" step="0.01" min="0" placeholder="182.50"
+                        value={lot.costBasis} onChange={(e) => setLot({ costBasis: e.target.value })}
+                        className="w-full rounded-lg border border-gray-700 bg-gray-900 px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-green-500" />
+                    </div>
+                    <div className="flex-1">
+                      <div className="text-gray-600 text-[9px] uppercase tracking-widest mb-1">Shares</div>
+                      <input type="number" step="1" min="0" placeholder="100"
+                        value={lot.qty} onChange={(e) => setLot({ qty: e.target.value })}
+                        className="w-full rounded-lg border border-gray-700 bg-gray-900 px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-green-500" />
+                    </div>
+                    <div className="flex-1">
+                      <div className="text-gray-600 text-[9px] uppercase tracking-widest mb-1">Acquired</div>
+                      <input type="date" max={new Date().toISOString().slice(0, 10)}
+                        value={lot.acquiredAt} onChange={(e) => setLot({ acquiredAt: e.target.value })}
+                        className="w-full rounded-lg border border-gray-700 bg-gray-900 px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-green-500 text-gray-300" />
+                    </div>
+                  </div>
+
+                  {/* Row 2: side, account type */}
+                  <div className="flex gap-2 items-center">
+                    <div className="flex gap-1 flex-1">
+                      <PillBtn active={lot.side === "long"}  onClick={() => setLot({ side: "long" })}  activeClass="bg-green-700 text-white">Long</PillBtn>
+                      <PillBtn active={lot.side === "short"} onClick={() => setLot({ side: "short" })} activeClass="bg-red-700 text-white">Short</PillBtn>
+                    </div>
+                    <div className="flex-1">
+                      <select value={lot.accountType} onChange={(e) => setLot({ accountType: e.target.value })}
+                        className="w-full rounded-lg border border-gray-700 bg-gray-900 px-2 py-1.5 text-xs text-gray-400 focus:outline-none focus:ring-1 focus:ring-green-500">
+                        {ACCOUNT_TYPES.map((t) => <option key={t} value={t}>{t.toUpperCase()}</option>)}
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Row 3: fees (optional) */}
+                  <div className="flex gap-2 items-center">
+                    <div className="flex-1">
+                      <div className="text-gray-600 text-[9px] uppercase tracking-widest mb-1">Total Fees ($, optional)</div>
+                      <input type="number" step="0.01" min="0" placeholder="e.g. 0.65"
+                        value={lot.feesTotal} onChange={(e) => setLot({ feesTotal: e.target.value })}
+                        className="w-full rounded-lg border border-gray-700 bg-gray-900 px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-green-500" />
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+
+            {/* Add lot */}
+            <button type="button" onClick={() => setLots((prev) => [...prev, newLot()])}
+              className="text-green-600 hover:text-green-400 text-xs font-bold text-left transition-colors">
+              + Add another lot
+            </button>
+
+            {/* Cost basis method */}
+            <div>
+              <div className="text-gray-600 text-[9px] uppercase tracking-widest mb-1.5">Cost Basis Method</div>
+              <div className="flex gap-2">
+                {(["average", "fifo", "lifo"] as const).map((m) => (
+                  <PillBtn key={m} active={costBasisMethod === m} onClick={() => setCostBasisMethod(m)} activeClass="bg-blue-700 text-white">
+                    {m.toUpperCase()}
+                  </PillBtn>
+                ))}
               </div>
-              <div className="flex-1">
-                <div className="text-gray-600 text-[9px] uppercase tracking-widest mb-1">Shares / Contracts</div>
-                <input type="number" step="1" min="0" placeholder="e.g. 100"
-                  value={posQty} onChange={(e) => setPosQty(e.target.value)}
-                  className="w-full rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-green-500" />
-              </div>
-            </div>
-            <div className="flex gap-2">
-              <PillBtn active={posSide === "long"}  onClick={() => setPosSide("long")}  activeClass="bg-green-700 text-white">Long</PillBtn>
-              <PillBtn active={posSide === "short"} onClick={() => setPosSide("short")} activeClass="bg-red-700 text-white">Short</PillBtn>
             </div>
           </div>
         )}
@@ -600,6 +742,24 @@ export default function Home() {
             {verdict.volume_spike && (
               <div className="text-xs text-yellow-300 bg-yellow-900/20 border border-yellow-800/40 rounded-lg px-3 py-1.5 mt-2">
                 Volume spike: {verdict.volume_spike}
+              </div>
+            )}
+
+            {/* Uncapped-risk contextual warning */}
+            {verdict.options_strategy && (verdict.max_loss == null || verdict.max_loss >= 1e9) && (
+              <div className="mt-4 rounded-xl border border-red-700/60 bg-red-950/30 px-4 py-3 flex gap-2 items-start">
+                <span className="text-red-400 text-base shrink-0">⚠</span>
+                <p className="text-red-300 text-xs leading-relaxed">
+                  <span className="font-bold">Uncapped or very large maximum loss.</span>{" "}
+                  This strategy can result in losses substantially greater than any premium received,
+                  up to and including total loss of account value and assignment obligations.
+                  Confirm your broker has approved you for this strategy level and read the{" "}
+                  <a href="https://www.theocc.com/Company-Information/Documents-and-Archives/Options-Disclosure-Document"
+                     target="_blank" rel="noopener noreferrer"
+                     className="underline text-red-400 hover:text-red-300">
+                    OCC options disclosure
+                  </a>{" "}before trading.
+                </p>
               </div>
             )}
 
@@ -758,23 +918,83 @@ export default function Home() {
               <>
                 <SectionLabel>Your Position</SectionLabel>
                 <div className={`rounded-xl border p-4 mb-1 ${(verdict.position_pnl_pct ?? 0) >= 0 ? "border-green-800/40 bg-green-950/20" : "border-red-800/40 bg-red-950/20"}`}>
+
+                  {/* Core metrics */}
                   <div className="grid grid-cols-3 gap-2 mb-3">
-                    <Chip label="Entry"   value={`$${verdict.position_entry.toFixed(2)}`} color="text-blue-300" />
-                    <Chip label="Current" value={`$${verdict.price.toFixed(2)}`} />
-                    <Chip label="P&L %"   value={`${(verdict.position_pnl_pct ?? 0) >= 0 ? "+" : ""}${verdict.position_pnl_pct?.toFixed(2)}%`} color={pnlColor} />
+                    <Chip label="Cost Basis" value={`$${verdict.position_entry.toFixed(2)}`} color="text-blue-300"
+                      sub={verdict.position_pnl_detail ? verdict.position_pnl_detail.cost_basis_method.toUpperCase() : undefined} />
+                    <Chip label="Current"    value={`$${verdict.price.toFixed(2)}`} />
+                    <Chip label="P&L %"      value={`${(verdict.position_pnl_pct ?? 0) >= 0 ? "+" : ""}${verdict.position_pnl_pct?.toFixed(2)}%`} color={pnlColor} />
                   </div>
+
+                  {/* Qty + total P&L */}
                   {verdict.position_qty && (
                     <div className="grid grid-cols-2 gap-2 mb-3">
-                      <Chip label="Qty" value={verdict.position_qty} />
-                      <Chip label="Total P&L" value={verdict.position_pnl_dollar != null
-                        ? `${(verdict.position_pnl_dollar * (verdict.position_qty ?? 1)) >= 0 ? "+" : ""}$${(verdict.position_pnl_dollar * (verdict.position_qty ?? 1)).toFixed(2)}`
-                        : null} color={pnlColor} />
+                      <Chip label="Total Shares" value={verdict.position_qty} />
+                      <Chip label="Total P&L"
+                        value={verdict.position_pnl_detail != null
+                          ? `${verdict.position_pnl_detail.unrealized_dollar >= 0 ? "+" : ""}$${verdict.position_pnl_detail.unrealized_dollar.toFixed(2)}`
+                          : verdict.position_pnl_dollar != null
+                          ? `${(verdict.position_pnl_dollar * (verdict.position_qty ?? 1)) >= 0 ? "+" : ""}$${(verdict.position_pnl_dollar * (verdict.position_qty ?? 1)).toFixed(2)}`
+                          : null}
+                        color={pnlColor} />
                     </div>
                   )}
+
+                  {/* Fees */}
+                  {verdict.position_pnl_detail && verdict.position_pnl_detail.fees_paid_total > 0 && (
+                    <div className="text-gray-600 text-[10px] mb-2">
+                      Fees included: ${verdict.position_pnl_detail.fees_paid_total.toFixed(2)}
+                    </div>
+                  )}
+
+                  {/* Aging block */}
+                  {verdict.position_aging && (
+                    <div className="rounded-lg bg-gray-900/60 border border-gray-700/40 px-3 py-2 mb-3 flex flex-wrap gap-x-4 gap-y-1">
+                      <span className="text-gray-600 text-[9px] uppercase tracking-widest w-full">Holding Period</span>
+                      <span className="text-gray-400 text-xs">
+                        Avg age: <span className="text-white font-semibold">{Math.round(verdict.position_aging.weighted_avg_age_days)}d</span>
+                      </span>
+                      <span className="text-gray-400 text-xs">
+                        Oldest: <span className="text-white font-semibold">{verdict.position_aging.earliest_acquired}</span>
+                      </span>
+                      {verdict.position_aging.long_term_pct > 0 && (
+                        <span className="text-green-400 text-xs font-semibold">
+                          {verdict.position_aging.long_term_pct.toFixed(0)}% long-term (&gt;1yr)
+                        </span>
+                      )}
+                      {verdict.position_aging.short_term_pct > 0 && (
+                        <span className="text-yellow-400 text-xs">
+                          {verdict.position_aging.short_term_pct.toFixed(0)}% short-term
+                        </span>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Per-lot breakdown (only when multi-lot) */}
+                  {verdict.position_pnl_detail?.breakdown_by_lot && (
+                    <div className="mb-3">
+                      <div className="text-gray-600 text-[9px] uppercase tracking-widest mb-1">Lot Breakdown</div>
+                      <div className="flex flex-col gap-1">
+                        {verdict.position_pnl_detail.breakdown_by_lot.map((lot, i) => (
+                          <div key={i} className="flex justify-between items-center text-xs bg-gray-900/50 rounded-lg px-3 py-1.5">
+                            <span className="text-gray-500">
+                              {lot.acquired_at ?? `Lot ${i + 1}`}
+                              <span className="ml-1 text-gray-700">· {lot.qty} sh @ ${lot.cost_basis_effective.toFixed(2)}</span>
+                            </span>
+                            <span className={lot.unrealized_dollar >= 0 ? "text-green-400 font-mono" : "text-red-400 font-mono"}>
+                              {lot.unrealized_dollar >= 0 ? "+" : ""}${lot.unrealized_dollar.toFixed(2)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   <div className="flex flex-col gap-0">
                     <Row label="vs Stop"   value={verdict.position_vs_stop}   valueClass={verdict.position_vs_stop?.includes("✗") ? "text-red-400" : "text-green-400"} />
                     <Row label="vs Target" value={verdict.position_vs_target} valueClass={verdict.position_vs_target?.includes("✓") ? "text-green-400" : "text-gray-300"} />
-                    <Row label="Side" value={verdict.position_side.toUpperCase()} />
+                    <Row label="Side"      value={verdict.position_side.toUpperCase()} />
                   </div>
                 </div>
               </>
@@ -890,7 +1110,7 @@ export default function Home() {
             <div className="flex items-center gap-3">
               <span className="uppercase tracking-wide">{verdict.asset_type} · {period}</span>
               <button type="button"
-                onClick={() => { setVerdict(null); setSymbol(""); setError(null); resetOptions(); setShowPos(false); setPosEntry(""); setPosQty(""); }}
+                onClick={() => { setVerdict(null); setSymbol(""); setError(null); resetOptions(); setShowPos(false); setPosEntry(""); setPosQty(""); setLots([newLot()]); setCostBasisMethod("average"); }}
                 className="text-gray-500 hover:text-white text-[10px] font-bold uppercase tracking-wide transition-colors">
                 New Analysis
               </button>
