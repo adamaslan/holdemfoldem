@@ -829,7 +829,7 @@ def _build_verdict(
     sig_summary = analysis.get("summary", {})
     bullish   = int(sig_summary.get("bullish", 0))
     bearish   = int(sig_summary.get("bearish", 0))
-    avg_score = float(sig_summary.get("avg_score", 50))
+    avg_score = float(sig_summary.get("avg_score") or 50)  # 0 → 50 when no signals
 
     indicators = analysis.get("indicators", {})
     rsi      = indicators.get("rsi")
