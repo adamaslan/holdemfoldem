@@ -98,10 +98,13 @@ async def _cached_or_fetch(tool_name: str, cache_key: str, fetch_fn):
         doc = fs.read_tool_result(tool_name, cache_key)
         if doc and doc.get("result"):
             updated_at = doc.get("updated_at")
-            fresh = True
+            fresh = False
             if updated_at:
                 try:
-                    age = (_dt.datetime.utcnow() - _dt.datetime.fromisoformat(updated_at)).total_seconds()
+                    dt_upd = updated_at if isinstance(updated_at, _dt.datetime) else _dt.datetime.fromisoformat(updated_at)
+                    if dt_upd.tzinfo is None:
+                        dt_upd = dt_upd.replace(tzinfo=_dt.timezone.utc)
+                    age = (_dt.datetime.now(_dt.timezone.utc) - dt_upd).total_seconds()
                     fresh = age < _FIRESTORE_CACHE_TTL_SECONDS
                 except Exception:
                     pass
@@ -907,7 +910,7 @@ def _build_verdict(
     risk_lvl   = _risk_level(avg_score, rr, atr_pct)
 
     # ── Multi-lot P&L pipeline ────────────────────────────────────────────────
-    as_of_date = _dt.date.today()
+    as_of_date = _dt.datetime.now(_dt.timezone.utc).date()
     canonical_lots = _canonicalize_lots(req)
 
     position_aging:      PositionAging | None = None
