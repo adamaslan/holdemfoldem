@@ -9,9 +9,10 @@ import math
 import os
 import re
 import sys
+import uuid
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -84,13 +85,27 @@ def _get_firestore() -> MCPFirestoreCache | None:
     return _firestore if _firestore is not False else None
 
 
+_FIRESTORE_CACHE_TTL_SECONDS = 3600  # 1 hour — prevents stale cached schemas
+
+
 async def _cached_or_fetch(tool_name: str, cache_key: str, fetch_fn):
     """fetch_fn is a zero-arg callable that returns a coroutine (avoids unawaited-coroutine warnings)."""
+    import datetime as _dt
     fs = _get_firestore()
     if fs:
         doc = fs.read_tool_result(tool_name, cache_key)
         if doc and doc.get("result"):
-            return doc["result"]
+            updated_at = doc.get("updated_at")
+            fresh = True
+            if updated_at:
+                try:
+                    age = (_dt.datetime.utcnow() - _dt.datetime.fromisoformat(updated_at)).total_seconds()
+                    fresh = age < _FIRESTORE_CACHE_TTL_SECONDS
+                except Exception:
+                    pass
+            if fresh:
+                return doc["result"]
+            logger.info("Firestore cache stale for %s/%s — refetching", tool_name, cache_key)
     result = await fetch_fn()
     if fs and result:
         fs.write_tool_result(tool_name, cache_key, result)
@@ -102,6 +117,11 @@ HOLD_THRESHOLD    = 60
 NEUTRAL_THRESHOLD = 55
 MAX_CONF          = 95.0
 PAYOFF_POINTS     = 60     # resolution of payoff curve
+
+VALID_PERIODS = frozenset({
+    "15m", "1h", "4h", "1d", "5d",
+    "1mo", "3mo", "6mo", "1y", "2y", "5y", "10y", "ytd", "max",
+})
 
 SUPPRESSION_LABELS = {
     "STOP_TOO_WIDE":          "Stop too wide (>3 ATR)",
@@ -275,6 +295,11 @@ class HoldFoldVerdict(BaseModel):
     # ── Summary ───────────────────────────────────────────────────────────────
     summary:        str
     data_timestamp: str | None
+
+    # ── Robustness metadata ───────────────────────────────────────────────────
+    degraded:       bool = False          # True if pipeline ran in degraded mode
+    warnings:       list[str] = Field(default_factory=list)  # structured warning codes
+    request_id:     str | None = None     # echoed in X-Request-Id header
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -557,6 +582,9 @@ def _strategy_verdict_bias(strategy: str | None) -> str:
 def _build_verdict(
     analysis: dict, trade: dict, fib: dict,
     opts: dict | None, req: AnalyzeRequest, cached: bool,
+    degraded: bool = False,
+    warnings: list[str] | None = None,
+    request_id: str | None = None,
 ) -> HoldFoldVerdict:
     symbol    = analysis.get("symbol", req.symbol)
     price     = float(analysis.get("price", 0.0))
@@ -726,6 +754,38 @@ def _build_verdict(
     if nearest_resistance:
         parts.append(f"Nearest Fib resistance ${nearest_resistance:.2f}.")
 
+    # ── Verdict invariant clamps ───────────────────────────────────────────────
+    # Confidence: hard clamp to [0, MAX_CONF]
+    confidence = max(0.0, min(confidence, MAX_CONF))
+
+    # Trade plan sanity: entry < target (long) / entry > target (short)
+    build_warnings: list[str] = list(warnings or [])
+    if entry is not None and stop is not None and target is not None:
+        long_ok  = stop < entry < target
+        short_ok = target < entry < stop
+        if not long_ok and not short_ok:
+            build_warnings.append("trade_plan_invalid:entry_stop_target_order")
+            logger.warning(
+                "%s: trade plan order invalid (entry=%s stop=%s target=%s) — clearing plan",
+                symbol, entry, stop, target,
+            )
+            entry = stop = target = rr = None
+            stop_pct = upside_pct = None
+
+    # Payoff sanity: max_loss must be non-negative
+    if max_loss is not None and max_loss < 0:
+        build_warnings.append("payoff_invalid:negative_max_loss")
+        logger.warning("%s: payoff max_loss %s < 0 — clearing payoff", symbol, max_loss)
+        max_profit = max_loss = spread_width = pop = None
+        breakeven_prices = []
+        payoff_curve = []
+
+    # Fibonacci monotonicity
+    if fib_levels and len(fib_levels) > 1:
+        prices = [lv.price for lv in fib_levels]
+        if prices != sorted(prices) and prices != sorted(prices, reverse=True):
+            fib_levels = sorted(fib_levels, key=lambda lv: lv.price)
+
     return HoldFoldVerdict(
         symbol=symbol,
         asset_type=req.asset_type,
@@ -776,45 +836,83 @@ def _build_verdict(
         strategy_note=strategy_note,
         summary=" ".join(parts),
         data_timestamp=timestamp,
+        degraded=degraded,
+        warnings=build_warnings,
+        request_id=request_id,
     )
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 @app.post("/api/analyze", response_model=HoldFoldVerdict)
-async def analyze(req: AnalyzeRequest):
+async def analyze(req: AnalyzeRequest, response: Response):
+    request_id = str(uuid.uuid4())
+    response.headers["X-Request-Id"] = request_id
+
     symbol = req.symbol.upper().strip()
     if not symbol:
         raise HTTPException(status_code=400, detail="Symbol required")
     if not _SYMBOL_RE.match(symbol):
-        raise HTTPException(status_code=400, detail=f"Invalid symbol: '{symbol}'. Use 1-12 alphanumeric characters, dots, or hyphens (e.g. AAPL, BTC-USD).")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid symbol: '{symbol}'. Use 1-12 alphanumeric characters, dots, or hyphens (e.g. AAPL, BTC-USD).",
+        )
 
-    logger.info("Analyzing %s period=%s strategy=%s dte=%s premium=%s",
-                symbol, req.period, req.options_strategy, req.dte, req.net_premium)
+    # Validate period
+    period = req.period
+    if period not in VALID_PERIODS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid period '{period}'. Valid values: {sorted(VALID_PERIODS)}",
+        )
+
+    logger.info(
+        "request_id=%s Analyzing %s period=%s strategy=%s dte=%s premium=%s",
+        request_id, symbol, period, req.options_strategy, req.dte, req.net_premium,
+    )
 
     cached = False
+    pipeline_warnings: list[str] = []
+    degraded = False
+
     try:
         analysis_raw, trade_raw, fib_raw = await asyncio.gather(
-            _cached_or_fetch("analyze_security", symbol, lambda: analyze_security(symbol, period=req.period)),
-            _cached_or_fetch("get_trade_plan",   symbol, lambda: get_trade_plan(symbol, period=req.period)),
-            _cached_or_fetch("analyze_fibonacci", symbol, lambda: analyze_fibonacci(symbol, period=req.period)),
+            _cached_or_fetch("analyze_security", symbol, lambda: analyze_security(symbol, period=period)),
+            _cached_or_fetch("get_trade_plan",   symbol, lambda: get_trade_plan(symbol, period=period)),
+            _cached_or_fetch("analyze_fibonacci", symbol, lambda: analyze_fibonacci(symbol, period=period)),
         )
         cached = bool(analysis_raw.get("cached", False))
+
+        # Surface any data-quality warnings embedded by the MCP layer
+        for key in ("warnings", "data_warnings", "_data_warnings"):
+            raw_warns = analysis_raw.get(key, [])
+            if isinstance(raw_warns, list):
+                pipeline_warnings.extend(raw_warns)
+
+        degraded = bool(analysis_raw.get("degraded", False))
+
     except Exception as e:
-        logger.error("Analysis failed for %s: %s", symbol, e)
+        logger.error("request_id=%s Analysis failed for %s: %s", request_id, symbol, e)
         raise HTTPException(status_code=503, detail=f"Analysis failed: {e}")
 
     # options_risk_analysis uses yfinance options chain — best-effort, non-fatal
     opts_raw = None
     if req.options_strategy:
         try:
-            opts_raw = await _cached_or_fetch("options_risk_analysis", symbol, lambda: options_risk_analysis(symbol))
+            opts_raw = await _cached_or_fetch(
+                "options_risk_analysis", symbol, lambda: options_risk_analysis(symbol)
+            )
         except Exception as e:
-            logger.warning("Options chain fetch failed for %s (non-fatal): %s", symbol, e)
+            logger.warning(
+                "request_id=%s Options chain fetch failed for %s (non-fatal): %s",
+                request_id, symbol, e,
+            )
+            pipeline_warnings.append("options_chain_unavailable")
 
     return _build_verdict(
         analysis=analysis_raw, trade=trade_raw,
         fib=fib_raw or {}, opts=opts_raw, req=req, cached=cached,
+        degraded=degraded, warnings=pipeline_warnings, request_id=request_id,
     )
 
 
