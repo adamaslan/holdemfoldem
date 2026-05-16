@@ -110,9 +110,11 @@ test("disclaimer modal appears when not yet acknowledged", async ({ page }) => {
 
   await page.goto("/");
 
-  // Modal should be visible
-  await expect(page.getByRole("dialog")).toBeVisible();
-  await expect(page.getByText("Not investment advice")).toBeVisible();
+  // Modal should be visible — scope the text check inside the dialog to avoid
+  // strict-mode violation (same text appears in the footer and button label)
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByText("Not investment advice.").first()).toBeVisible();
 
   // Clicking "I understand" should dismiss it
   await page.getByRole("button", { name: /I understand/i }).click();
