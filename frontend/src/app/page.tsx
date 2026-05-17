@@ -421,6 +421,7 @@ export default function Home() {
           <span className="text-green-400">Hold</span>
           <span className="text-gray-600 mx-2 text-4xl">em or</span>
           <span className="text-red-400">Fold</span>
+          <span className="text-gray-600 mx-2 text-4xl">em</span>
         </h1>
         <p className="text-gray-600 text-sm mt-1">Live signals · Fibonacci · Options payoff · Position P&amp;L</p>
       </div>
