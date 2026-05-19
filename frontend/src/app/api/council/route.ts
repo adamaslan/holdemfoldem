@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const COUNCIL_URL = process.env.COUNCIL_URL ?? "http://localhost:3001";
+const COUNCIL_URL = process.env.COUNCIL_URL ?? "http://localhost:3002";
 
 export async function POST(req: NextRequest) {
   const body = await req.json();
@@ -13,7 +13,7 @@ export async function POST(req: NextRequest) {
     });
   } catch (err) {
     const msg = String(err).includes("ECONNREFUSED")
-      ? `AI Council unreachable at ${COUNCIL_URL} — is ai-text-opt-1024 running on :3001?`
+      ? `AI Council unreachable at ${COUNCIL_URL} — is ai-text-opt-1024 running on :3002?`
       : `Failed to reach AI Council: ${err}`;
     return NextResponse.json({ detail: msg }, { status: 503 });
   }
@@ -29,5 +29,5 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ detail }, { status: res.status });
   }
 
-  return NextResponse.json(data, { status: 200 });
+  return NextResponse.json(data, { status: res.status });
 }
