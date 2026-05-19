@@ -58,10 +58,13 @@ export default function AiCouncilCommentary({ verdict }: { verdict: CouncilVerdi
     setLoading(true);
     setError(null);
     setResponse(null);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30_000);
     try {
       const res = await fetch("/api/council", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
         body: JSON.stringify({
           message: buildCouncilPrompt(verdict),
           trader_filter: null,
@@ -74,8 +77,13 @@ export default function AiCouncilCommentary({ verdict }: { verdict: CouncilVerdi
       }
       setResponse(data as CouncilResponse);
     } catch (err) {
-      setError(`Failed to reach council: ${err}`);
+      const msg =
+        err instanceof DOMException && err.name === "AbortError"
+          ? "Council request timed out after 30s"
+          : `Failed to reach council: ${err}`;
+      setError(msg);
     } finally {
+      clearTimeout(timeoutId);
       setLoading(false);
     }
   }
@@ -108,7 +116,7 @@ export default function AiCouncilCommentary({ verdict }: { verdict: CouncilVerdi
             {response.answer}
           </p>
 
-          {response.sources.length > 0 && (
+          {response.sources?.length > 0 && (
             <div>
               <div className="text-[9px] uppercase tracking-wider text-gray-600 mb-1">
                 Sources · {response.llm_provider}
