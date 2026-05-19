@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import AiCouncilCommentary from "@/components/AiCouncilCommentary";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface FibLevel { name: string; price: number; distance_pct: number; strength: string; type: string }
@@ -1103,6 +1104,9 @@ export default function Home() {
 
             {/* Summary */}
             <p className="text-gray-500 text-xs leading-relaxed mt-5 border-l-2 border-gray-800 pl-3">{verdict.summary}</p>
+
+            {/* AI Council commentary */}
+            <AiCouncilCommentary verdict={verdict} />
           </div>
 
           {/* Footer */}
