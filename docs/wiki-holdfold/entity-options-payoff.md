@@ -2,16 +2,18 @@
 date: 2026-05-31
 type: entity
 tags: [options, payoff, greeks, backend]
-sources: [../backend/main.py, ../docs/signal-pipeline.md]
+sources: [../backend/core.py, ../docs/signal-pipeline.md]
 ---
 
-# Entity: Options Payoff Engine (`backend/main.py`)
+# Entity: Options Payoff Engine (`backend/core.py`)
 
-Computes per-share P&L at expiry across 60 price points for 14 options strategy types, plus probability-of-profit estimates and key metrics (max profit, max loss, breakevens, spread width). Runs as the final step in `_build_verdict` when `options_strategy` is set in the request.
+Computes per-share P&L at expiry across 61 price points for 14 options strategy types, plus probability-of-profit estimates and key metrics (max profit, max loss, breakevens, spread width). Runs as the final step in `_build_verdict` when `options_strategy` is set in the request.
+
+**As of 2026-08-28** this logic lives in `backend/core.py`, not `backend/main.py` — see [[entity-verdict-core]] for the extraction.
 
 ## What it is
 
-Implemented entirely in `backend/main.py`. Three layers:
+Implemented entirely in `backend/core.py`. Three layers:
 
 **1. Greeks extraction** (`_extract_options_greeks`)
 
@@ -26,11 +28,11 @@ vega: float | None
 
 **2. Payoff curve** (`_strategy_pnl_at_expiry`)
 
-For each of 60 price points (`PAYOFF_POINTS = 60`) spanning `[min(strikes+spot) × 0.7, max(strikes+spot) × 1.3]` (or `[spot_low, spot_high]` if the caller supplies both):
+For each of 61 price points (`PAYOFF_POINTS = 60`, iterated `range(PAYOFF_POINTS + 1)`) spanning `[min(strikes+spot) × 0.7, max(strikes+spot) × 1.3]` (or `[spot_low, spot_high]` if the caller supplies both):
 - Calls the appropriate payoff formula for the chosen strategy
 - Returns a `PayoffPoint(price, pnl)` list
 
-14 strategies have `STRATEGY_NOTES` entries, but only **12** have an expiry payoff branch in `_strategy_pnl_at_expiry` (`backend/main.py:642-724`). `calendar_spread` and `diagonal_spread` fall through and return `None` — a single-expiry payoff-at-expiry model cannot represent a multi-expiry position, so no curve, breakevens, max profit/loss, or PoP are produced for them even though they are accepted strategy names:
+14 strategies have `STRATEGY_NOTES` entries, but only **12** have an expiry payoff branch in `_strategy_pnl_at_expiry` (`backend/core.py:654-721`). `calendar_spread` and `diagonal_spread` fall through and return `None` — a single-expiry payoff-at-expiry model cannot represent a multi-expiry position, so no curve, breakevens, max profit/loss, or PoP are produced for them even though they are accepted strategy names:
 
 | Strategy | Description |
 |----------|-------------|
@@ -51,25 +53,26 @@ For each of 60 price points (`PAYOFF_POINTS = 60`) spanning `[min(strikes+spot) 
 
 **3. Metrics** (`_compute_payoff_metrics`)
 
-From the 60-point curve:
+From the 61-point curve:
 - `max_profit`, `max_loss`
 - `spread_width`
 - `breakevens` (price points where PnL crosses zero)
-- `pop_estimate` — probability of profit: fraction of 60 price points with PnL > 0
+- `pop_estimate` — probability of profit: fraction of 61 price points with PnL > 0
 
 **Verdict override**: `_strategy_verdict_bias` maps strategies to bias (bullish/bearish/neutral/volatility). Neutral/volatility strategies override the signal-derived verdict when `avg_score ≥ 55`.
 
 ## Where used
 
-- [[entity-backend-api]] — calls `_build_verdict` which calls the payoff engine
+- [[entity-verdict-core]] — `core.compute_verdict` calls `_build_verdict` which calls the payoff engine
+- [[entity-backend-api]] — the FastAPI adapter exposing it over HTTP
 - [[entity-frontend-app]] — renders payoff curve chart, breakevens, max profit/loss
 - [[entity-signal-pipeline]] — stage 4 (verdict construction) invokes the payoff engine
 
 ## Known failures
 
-1. **`backend/cloud-run/main.py` has no payoff engine** — the deployed Cloud Run backend does not run options analysis. Requests with `options_strategy` set will return a verdict without payoff fields.
+1. **`backend/cloud-run/main.py` has no payoff engine** — the *unused* stripped-down entrypoint at that path does not run options analysis. Note that `deploy-backend.sh` does not actually deploy this file; see [[entity-verdict-core]] Known Failures for the packaging gap this PR closed for the *deployed* entrypoint (`backend/main.py` + `backend/core.py`, deployed as Cloud Run's `main.py`).
 2. **`straddle` payoff invariant** — per the git history (`c74ca7b`), the straddle payoff formula was incorrect before a code review fix. Confirmed fixed as of that commit; no regression in prod observed.
-3. **PoP estimate is a rough proxy** — `pop` is the fraction of the 60 analyzed price points with PnL > 0, assuming a uniform price distribution over the auto-range. This overestimates PoP for OTM strategies (the code comment at `main.py:798-801` says a log-normal weighting by IV and DTE would be more correct). `iv` and `dte` are passed into `_compute_payoff_metrics` but are not yet used. The response field is `pop`, not `pop_estimate`.
+3. **PoP estimate is a rough proxy** — `pop` is the fraction of the 61 analyzed price points with PnL > 0, assuming a uniform price distribution over the auto-range. This overestimates PoP for OTM strategies (a code comment in `_compute_payoff_metrics`, `backend/core.py`, says a log-normal weighting by IV and DTE would be more correct). `iv` and `dte` are passed into `_compute_payoff_metrics` but are not yet used. The response field is `pop`, not `pop_estimate`.
 4. **`calendar_spread` / `diagonal_spread` produce no payoff** — these two strategies have no branch in `_strategy_pnl_at_expiry`, so `payoff_curve`, `breakeven_prices`, `max_profit`, `max_loss`, and `pop` are all null even when the request is otherwise valid. The verdict and `strategy_note` still render. A single-expiry payoff-at-expiry model is structurally unable to price a calendar/diagonal.
 
 ## Open questions

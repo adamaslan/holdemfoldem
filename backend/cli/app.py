@@ -17,6 +17,12 @@ import typer
 
 from cli.render import render_table, render_verdict
 
+try:
+    from core import AnalysisUnavailableError
+except ImportError:  # HTTP-only install — core.py's mamba env isn't present
+    class AnalysisUnavailableError(Exception):
+        """Placeholder used only when the in-process engine can't import."""
+
 app = typer.Typer(
     name="holdfold",
     help="Instant HOLD EM / FOLD EM verdict for any US stock, ETF, or option.",
@@ -204,6 +210,9 @@ def verdict(
     except ConnectionError as e:
         typer.secho(f"Backend unreachable: {e}", fg="red", err=True)
         raise typer.Exit(EXIT_ERROR) from e
+    except AnalysisUnavailableError as e:
+        typer.secho(f"Analysis unavailable: {e}", fg="red", err=True)
+        raise typer.Exit(EXIT_ERROR) from e
 
     if as_json:
         json.dump(result, sys.stdout, indent=2, default=str)
@@ -231,7 +240,7 @@ def watch(
             )
             try:
                 results.append(await _dispatch(request, remote))
-            except (ValueError, ConnectionError) as e:
+            except (ValueError, ConnectionError, AnalysisUnavailableError) as e:
                 results.append({"symbol": sym.upper(), "error": str(e)})
         return results
 
@@ -264,6 +273,9 @@ def health(
         result = asyncio.run(_run())
     except ConnectionError as e:
         typer.secho(f"Backend unreachable: {e}", fg="red", err=True)
+        raise typer.Exit(EXIT_ERROR) from e
+    except AnalysisUnavailableError as e:
+        typer.secho(f"Analysis unavailable: {e}", fg="red", err=True)
         raise typer.Exit(EXIT_ERROR) from e
 
     typer.echo(json.dumps(result, indent=2))

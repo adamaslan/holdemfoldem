@@ -7,7 +7,7 @@ from __future__ import annotations
 import pytest
 from typer.testing import CliRunner
 
-from cli.app import _build_request, _parse_leg, _parse_lot, app
+from cli.app import AnalysisUnavailableError, _build_request, _parse_leg, _parse_lot, app
 
 runner = CliRunner()
 
@@ -84,6 +84,25 @@ class TestVerdictCommand:
         result = runner.invoke(app, ["verdict", "AAPL", "--remote", "http://bad-host"])
         assert result.exit_code == 3
         assert "Backend unreachable" in result.output
+
+    def test_analysis_unavailable_exits_error_not_fold(self, monkeypatch):
+        """Regression: a pipeline outage must not silently read as FOLD EM
+        (exit code 1) via an uncaught traceback exiting status 1."""
+        async def _raise_dispatch(request, remote):
+            raise AnalysisUnavailableError("Analysis failed: upstream timeout")
+
+        monkeypatch.setattr("cli.app._dispatch", _raise_dispatch)
+        result = runner.invoke(app, ["verdict", "AAPL"])
+        assert result.exit_code == 3
+        assert "Analysis unavailable" in result.output
+
+    def test_watch_reports_analysis_unavailable_as_error_row(self, monkeypatch):
+        async def _raise_dispatch(request, remote):
+            raise AnalysisUnavailableError("upstream timeout")
+
+        monkeypatch.setattr("cli.app._dispatch", _raise_dispatch)
+        result = runner.invoke(app, ["watch", "AAPL"])
+        assert result.exit_code == 3
 
     @pytest.mark.parametrize(
         "verdict_str,expected_exit",

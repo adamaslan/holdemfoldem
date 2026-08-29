@@ -18,6 +18,7 @@ echo ""
 # The Dockerfile COPYs:
 #   cloud-run/environment.yml  →  from holdemfoldemapp/backend/cloud-run/
 #   cloud-run/main.py          →  from holdemfoldemapp/backend/cloud-run/
+#   cloud-run/core.py          →  from holdemfoldemapp/backend/cloud-run/
 #   src/                       →  from mcp-finance1/src/
 #   fibonacci/                 →  from mcp-finance1/fibonacci/
 #
@@ -30,10 +31,13 @@ trap "rm -rf $BUILD_CTX" EXIT
 cp -r "$MCP_SRC/src"       "$BUILD_CTX/src"
 cp -r "$MCP_SRC/fibonacci" "$BUILD_CTX/fibonacci" 2>/dev/null || true
 
-# Copy cloud-run assets (Dockerfile, environment.yml) + v5 main.py
+# Copy cloud-run assets (Dockerfile, environment.yml) + v5 main.py + core.py
+# (main.py now does `from core import ...` — both must ship together, see
+# docs/wiki-holdfold/entity-verdict-core.md)
 mkdir -p "$BUILD_CTX/cloud-run"
 cp "$SCRIPT_DIR/backend/cloud-run/Dockerfile"       "$BUILD_CTX/Dockerfile"
 cp "$SCRIPT_DIR/backend/main.py"                    "$BUILD_CTX/cloud-run/main.py"
+cp "$SCRIPT_DIR/backend/core.py"                    "$BUILD_CTX/cloud-run/core.py"
 cp "$SCRIPT_DIR/backend/cloud-run/environment.yml"  "$BUILD_CTX/cloud-run/environment.yml"
 
 echo "📦 Build context prepared at $BUILD_CTX"

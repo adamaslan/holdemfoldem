@@ -99,7 +99,7 @@ Combines ranked signals + trade plan + options data + request into `HoldFoldVerd
    └─ tied                          → NEUTRAL,  confidence = 50.0
 
 7. Bearish strategy override (applied after paths 1–6):
-   └─ If options_strategy ∈ BEARING_STRATEGIES AND verdict == HOLD EM → flip to FOLD EM
+   └─ If options_strategy ∈ BEARISH_STRATEGIES AND verdict == HOLD EM → flip to FOLD EM
 ```
 
 Constants: `HOLD_THRESHOLD = 60`, `NEUTRAL_THRESHOLD = 55`, `MAX_CONF = 95`.

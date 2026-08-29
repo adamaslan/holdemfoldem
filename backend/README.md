@@ -245,6 +245,7 @@ bash deploy-backend.sh
 The script creates a temporary build context, copies in:
 
 - `backend/main.py` as the Cloud Run `main.py`
+- `backend/core.py` as the Cloud Run `core.py` (`main.py` imports it — both must ship together)
 - `backend/cloud-run/Dockerfile`
 - `backend/cloud-run/environment.yml`
 - MCP Finance `src/`

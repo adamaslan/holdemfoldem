@@ -46,3 +46,21 @@ Built `backend/core.py` (transport-agnostic verdict engine extracted from `backe
 New pages: `entity-verdict-core.md`, `entity-cli.md`, `entity-mcp-server.md`, `decision-mcp-wraps-http-not-import.md`. Updated: `index.md`.
 
 Also fixed `.gitignore` (`docs/*` blanket-ignored the entire `docs/` tree, including this wiki and `docs/cli-and-mcp-guide.md` — neither was ever actually in version control despite being written). Added explicit `!docs/wiki-holdfold/` and `!docs/cli-and-mcp-guide.md` exceptions; all other loose files under `docs/` remain gitignored as before.
+
+## [2026-08-29] ingest | PR #11 review fixes (CodeRabbit) | pages touched: 3
+
+Fixed 6 real, verified findings from CodeRabbit's review of PR #11:
+1. CLI didn't catch `AnalysisUnavailableError` in `verdict`/`watch`/`health` — a pipeline outage exited status 1, indistinguishable from FOLD EM (exit code 1) to a script reading the exit code.
+2. `core.py`'s missing-MCP-path case raised bare `FileNotFoundError` via `os.chdir()` instead of `ImportError`, which the CLI's HTTP-only fallback (`except ImportError`) doesn't catch.
+3. `pnl_dollar = unrealized_dollar / max(qty, 1)` corrupted per-share P&L for fractional lots (qty < 1, e.g. BTC-USD) — clamping to 1 instead of guarding on zero. Verified against live AAPL data pre/post fix.
+4. `trade=trade_raw` (not `trade_raw or {}`) into `_build_verdict` — a `None` trade plan would `AttributeError` inside the try/except boundary, surfacing as an unhandled 500 instead of the documented 503.
+5. `cli/client.py` mapped only HTTP 400 to `ValueError`; other 4xx (422 pydantic validation, etc.) fell through to `ConnectionError`, misreporting as "Backend unreachable" instead of "Invalid input".
+6. `deploy-backend.sh` + `backend/cloud-run/Dockerfile` copied only `main.py` into the Cloud Run build context/image, not `core.py` — since `main.py` now imports `core`, this would fail Cloud Run startup with `ModuleNotFoundError: core`.
+
+Also fixed 2 cheap doc-nit findings while touching the same files: `BEARING_STRATEGIES` → `BEARISH_STRATEGIES` typo (2 files), and payoff curve point count (60 → 61, since `range(PAYOFF_POINTS + 1)` produces 61 points) plus stale `backend/main.py` line-number references in `entity-options-payoff.md` now pointing at `backend/core.py`.
+
+Deferred (not fixed, noted for a future pass): 12 remaining Minor/Trivial nits from the same review — mostly wiki relative-path corrections (`../` vs `../../` in `sources:` frontmatter across several pages) and a Firestore-blocks-the-event-loop performance note (pre-existing behavior carried unchanged from `main.py`, not a regression from this PR).
+
+Verified: 29 pytest tests (8 new — `AnalysisUnavailableError` CLI handling ×2, 4xx/5xx client mapping ×4, fractional-qty P&L ×2), full Playwright e2e suite (9 tests), and live smoke tests against real AAPL data confirming the fractional-lot fix (0.5 qty lot: `unrealized_dollar / total_qty` = 219.7, correctly 2x the pre-fix `max(0.5, 1)`-clamped value).
+
+Updated: `entity-backend-api.md`, `entity-verdict-core.md`, `entity-options-payoff.md` (all now correctly attribute the verdict/payoff logic to `backend/core.py` and note the Cloud Run packaging fix).

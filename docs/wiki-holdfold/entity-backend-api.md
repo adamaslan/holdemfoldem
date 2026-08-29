@@ -2,12 +2,14 @@
 date: 2026-05-31
 type: entity
 tags: [fastapi, backend, api, verdict, holdfold]
-sources: [../backend/main.py, ../backend/cloud-run/main.py]
+sources: [../backend/main.py, ../backend/core.py, ../backend/cloud-run/main.py]
 ---
 
 # Entity: Backend API (`backend/main.py`)
 
 FastAPI v6 application that receives an `AnalyzeRequest` and returns a `HoldFoldVerdict`. The single source of truth for the `HoldFoldVerdict` JSON contract used by both the Next.js frontend and the gcp3-mobile app.
+
+**As of 2026-08-28**, `backend/main.py` is a thin HTTP adapter — the verdict pipeline itself was extracted into `backend/core.py` (see [[entity-verdict-core]]). `main.py` imports `core` at module load, so any deployment (including Cloud Run) that ships `main.py` must ship `core.py` alongside it; `deploy-backend.sh` and `backend/cloud-run/Dockerfile` both copy `core.py` into the build context/image for this reason.
 
 ## What it is
 

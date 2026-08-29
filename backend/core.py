@@ -39,6 +39,16 @@ if _env_path.exists():
 _local_mcp = Path(__file__).parent.parent.parent / "gcp-app-w-mcp1" / "mcp-finance1"
 _cloudrun_mcp = Path("/app")
 _mcp_path = _local_mcp if _local_mcp.exists() else _cloudrun_mcp
+if not _mcp_path.exists():
+    # Neither the sibling checkout nor /app exists — raise ImportError (not the
+    # FileNotFoundError os.chdir() below would raise) so callers that catch
+    # ImportError around `import core` (e.g. cli/app.py's HTTP-only fallback)
+    # see the failure they're built to handle.
+    raise ImportError(
+        f"MCP Finance source not found at {_local_mcp} or {_cloudrun_mcp} — "
+        f"core.py requires the sibling gcp-app-w-mcp1/mcp-finance1 checkout locally, "
+        f"or /app on Cloud Run."
+    )
 sys.path.insert(0, str(_mcp_path))
 os.chdir(str(_mcp_path))
 
@@ -933,8 +943,12 @@ def _build_verdict(
     # Legacy flat P&L fields (derived from new pipeline when available, else old formula)
     if position_pnl_detail:
         pnl_pct    = position_pnl_detail.unrealized_pct
-        pnl_dollar = position_pnl_detail.unrealized_dollar / max(
-            sum(lot.qty for lot in (canonical_lots or [])), 1
+        _total_qty = sum(lot.qty for lot in (canonical_lots or []))
+        # Guard on zero rather than clamping to 1 — fractional lots (e.g.
+        # BTC-USD, fractional shares) below 1 would otherwise be corrupted:
+        # clamping to 1 understates per-share P&L for any qty < 1.
+        pnl_dollar = (
+            position_pnl_detail.unrealized_dollar / _total_qty if _total_qty else None
         )
         # vs_stop / vs_target still use old helper (stop/target come from trade plan)
         _, _, vs_stop, vs_target = _position_eval(
@@ -944,10 +958,6 @@ def _build_verdict(
         pnl_pct, pnl_dollar, vs_stop, vs_target = _position_eval(
             price, req.position_entry, stop, target, req.position_qty, req.position_side
         )
-
-    # Annotate summary with aging when held > 1 year
-    if position_aging and position_aging.long_term_pct > 0:
-        pass  # appended to summary parts below
 
     fib_levels, fib_zones, nearest_support, nearest_resistance = _extract_fib_levels(fib, price)
 
@@ -1233,7 +1243,7 @@ async def compute_verdict(req: AnalyzeRequest, request_id: str | None = None) ->
             pipeline_warnings.append("options_chain_unavailable")
 
     return _build_verdict(
-        analysis=analysis_raw, trade=trade_raw,
+        analysis=analysis_raw, trade=trade_raw or {},
         fib=fib_raw or {}, opts=opts_raw, req=req, cached=cached,
         degraded=degraded, warnings=pipeline_warnings, request_id=request_id,
     )

@@ -37,8 +37,9 @@ Errors surface as plain Python exceptions instead of `HTTPException`, so callers
 
 ## Known failures
 
-- `core.py` (like the old `main.py`) calls `os.chdir()` at import time to point the process CWD at the sibling `mcp-finance1` repo. Any process that imports it has its working directory changed. The CLI's in-process path must resolve user-supplied paths to absolute *before* importing `core`.
+- `core.py` (like the old `main.py`) calls `os.chdir()` at import time to point the process CWD at the sibling `mcp-finance1` repo. Any process that imports it has its working directory changed. The CLI's in-process path must resolve user-supplied paths to absolute *before* importing `core`. If neither the sibling checkout nor `/app` exists, `core.py` now raises `ImportError` explicitly (rather than letting `os.chdir()` raise a bare `FileNotFoundError`), so callers that catch `ImportError` around `import core` — e.g. `cli/app.py`'s HTTP-only fallback — see the failure mode they're built to handle.
 - The extraction was verified by re-running the full Playwright e2e suite (`frontend/e2e/app.spec.ts`, 9 tests) against the refactored backend with no changes to the HTTP contract — all passed.
+- **Packaging gap (found in review, fixed in the same PR):** the Cloud Run deploy (`deploy-backend.sh` + `backend/cloud-run/Dockerfile`) originally copied only `backend/main.py` into the build context/image, not `backend/core.py`. Since `main.py` now does `from core import ...`, this would have failed at Cloud Run startup with `ModuleNotFoundError: core`. Fixed by copying `core.py` alongside `main.py` in both the deploy script and the Dockerfile `COPY` step.
 
 ## Open questions
 

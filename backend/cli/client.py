@@ -43,10 +43,13 @@ async def post_analyze(base_url: str, payload: dict[str, Any]) -> dict[str, Any]
     except httpx.RequestError as e:
         raise ConnectionError(f"Could not reach {url}: {e}") from e
 
-    if response.status_code == 400:
+    if 400 <= response.status_code < 500:
+        # All 4xx (400 bad symbol/period, 422 pydantic validation, etc.) are
+        # input errors — map them to ValueError so app.py reports "Invalid
+        # input" rather than the misleading "Backend unreachable".
         detail = _extract_detail(response)
         raise ValueError(detail)
-    if response.status_code >= 400:
+    if response.status_code >= 500:
         detail = _extract_detail(response)
         raise ConnectionError(f"Backend returned {response.status_code}: {detail}")
 

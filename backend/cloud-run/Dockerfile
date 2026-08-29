@@ -13,8 +13,9 @@ COPY --from=builder /opt/conda /opt/conda
 
 WORKDIR /app
 
-# FastAPI entry point (cloud-run specific)
+# FastAPI entry point (cloud-run specific) + the verdict engine it imports
 COPY --chown=$MAMBA_USER:$MAMBA_USER cloud-run/main.py ./main.py
+COPY --chown=$MAMBA_USER:$MAMBA_USER cloud-run/core.py ./core.py
 
 # MCP source (canonical package used by main.py)
 COPY --chown=$MAMBA_USER:$MAMBA_USER src ./src

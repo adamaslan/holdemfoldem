@@ -38,7 +38,7 @@ The keyword→score map is `STRENGTH_SCORES` and the bonus map is `CATEGORY_BONU
 
 **Signal collapsing — how `bullish_count` and `bearish_count` are computed**: Each `Signal` object has a `strength` field (e.g. `STRONG_BULLISH`, `BULLISH`, `BEARISH`, `STRONG_BEARISH`). The pipeline counts signals with `BULLISH` in the strength label as bullish, and `BEARISH` as bearish. There is no explicit `is_bullish` flag on each signal — directionality is inferred from the strength keyword. A signal labeled `STRONG_BULLISH` contributes +1 to `bullish_count`. A neutral signal (e.g. `SIGNIFICANT_RANGE`) contributes to neither count but still affects `avg_score`.
 
-**Bearish strategy override**: After the confidence/verdict path above resolves, if `options_strategy ∈ BEARING_STRATEGIES` and the verdict is `HOLD EM`, it is flipped to `FOLD EM`. This override is applied post-confidence — confidence is not recalculated.
+**Bearish strategy override**: After the confidence/verdict path above resolves, if `options_strategy ∈ BEARISH_STRATEGIES` and the verdict is `HOLD EM`, it is flipped to `FOLD EM`. This override is applied post-confidence — confidence is not recalculated.
 
 **Risk level** derives from avg_score + R/R + ATR%:
 
