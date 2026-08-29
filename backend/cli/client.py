@@ -43,13 +43,16 @@ async def post_analyze(base_url: str, payload: dict[str, Any]) -> dict[str, Any]
     except httpx.RequestError as e:
         raise ConnectionError(f"Could not reach {url}: {e}") from e
 
-    if 400 <= response.status_code < 500:
-        # All 4xx (400 bad symbol/period, 422 pydantic validation, etc.) are
-        # input errors — map them to ValueError so app.py reports "Invalid
-        # input" rather than the misleading "Backend unreachable".
+    if response.status_code in (400, 422):
+        # 400 (bad symbol/period) and 422 (FastAPI/pydantic payload
+        # validation) are genuine input errors — map to ValueError so app.py
+        # reports "Invalid input" rather than the misleading "Backend
+        # unreachable". Other 4xx (401/403/404) are routing/auth/config
+        # problems, not something the user's input caused, so those fall
+        # through to ConnectionError below alongside 5xx.
         detail = _extract_detail(response)
         raise ValueError(detail)
-    if response.status_code >= 500:
+    if response.status_code >= 400:
         detail = _extract_detail(response)
         raise ConnectionError(f"Backend returned {response.status_code}: {detail}")
 
@@ -75,9 +78,16 @@ async def get_health(base_url: str) -> dict[str, Any]:
 
 
 def _extract_detail(response: httpx.Response) -> str:
-    """Pull FastAPI's {"detail": "..."} out of an error response, else raw text."""
+    """Pull FastAPI's {"detail": "..."} out of an error response, else raw text.
+
+    Guards against a non-object JSON body (an array or scalar) — .get() on
+    those would raise AttributeError instead of the caller's documented
+    ValueError/ConnectionError.
+    """
     try:
         body = response.json()
-        return str(body.get("detail", response.text))
     except ValueError:
         return response.text
+    if isinstance(body, dict):
+        return str(body.get("detail", response.text))
+    return str(body)

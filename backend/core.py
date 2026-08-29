@@ -494,7 +494,21 @@ def _compute_lots_pnl(
     For 'fifo' and 'lifo' the order affects which lots are theoretically matched first
     in a realized context; since we only track unrealized here, method affects the
     effective-basis display and the per-lot sorting.
+
+    Raises:
+        ValueError: If lots mix long and short sides. The aggregate P&L below
+            is computed with a single sign derived from one lot's side; mixing
+            sides would silently produce a wrong net figure (e.g. one long lot
+            and one short lot of equal size/basis can report a profit when the
+            true net P&L is zero). Reject rather than guess.
     """
+    sides = {lot.side for lot in lots}
+    if len(sides) > 1:
+        raise ValueError(
+            f"position_lots mixes long and short sides ({sorted(sides)}) — "
+            f"not yet supported. Submit long and short positions as separate requests."
+        )
+
     if method == "fifo":
         ordered = sorted(lots, key=lambda lot: (_parse_acquired_at(lot.acquired_at) or _dt.date.min))
     elif method == "lifo":
@@ -511,7 +525,8 @@ def _compute_lots_pnl(
     else:
         weighted_basis = 0.0
 
-    # Unrealized P&L (using first lot's side for sign — mixed sides not yet supported)
+    # Unrealized P&L — safe to use one side for all lots now that mixed-side
+    # lists are rejected above.
     side   = ordered[0].side if ordered else "long"
     mult   = 1 if side == "long" else -1
     unrealized_dollar = sum(
@@ -551,6 +566,18 @@ def _compute_lots_pnl(
         cost_basis_method=method,
         breakdown_by_lot=lot_breakdown if len(ordered) > 1 else None,
     )
+
+
+def _per_share_pnl(pnl_detail: PositionPnL, lots: list[PositionLot]) -> float | None:
+    """Derive the legacy flat per-share P&L field from the multi-lot detail.
+
+    Extracted from _build_verdict so it's independently testable. Guards on
+    zero total quantity rather than clamping it to 1 — clamping corrupted the
+    result for any fractional total quantity below 1 (e.g. BTC-USD, fractional
+    shares): `unrealized_dollar / max(0.5, 1)` understates per-share P&L by 2x.
+    """
+    total_qty = sum(lot.qty for lot in lots)
+    return pnl_detail.unrealized_dollar / total_qty if total_qty else None
 
 
 def _canonicalize_lots(req: AnalyzeRequest) -> list[PositionLot] | None:
@@ -943,13 +970,7 @@ def _build_verdict(
     # Legacy flat P&L fields (derived from new pipeline when available, else old formula)
     if position_pnl_detail:
         pnl_pct    = position_pnl_detail.unrealized_pct
-        _total_qty = sum(lot.qty for lot in (canonical_lots or []))
-        # Guard on zero rather than clamping to 1 — fractional lots (e.g.
-        # BTC-USD, fractional shares) below 1 would otherwise be corrupted:
-        # clamping to 1 understates per-share P&L for any qty < 1.
-        pnl_dollar = (
-            position_pnl_detail.unrealized_dollar / _total_qty if _total_qty else None
-        )
+        pnl_dollar = _per_share_pnl(position_pnl_detail, canonical_lots or [])
         # vs_stop / vs_target still use old helper (stop/target come from trade plan)
         _, _, vs_stop, vs_target = _position_eval(
             price, req.position_entry, stop, target, req.position_qty, req.position_side
