@@ -1,0 +1,540 @@
+<title>Two Ways In</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Public+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap">
+
+<style>
+  :root {
+    --felt-0: #f6f1e6;
+    --felt-1: #ece3d0;
+    --felt-2: #ddd0b4;
+    --ink-0: #1c2320;
+    --ink-1: #3a423d;
+    --ink-2: #5c655e;
+    --brass: #96742a;
+    --brass-strong: #7a5c1e;
+    --cli: #3f6485;
+    --mcp: #6b4a80;
+    --hold: #3f7a4f;
+    --fold: #a8432f;
+    --line: rgba(28, 35, 32, 0.14);
+    --card-bg: #fffdf8;
+    --shadow: rgba(28, 23, 10, 0.10);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --felt-0: #141e1a;
+      --felt-1: #1a2723;
+      --felt-2: #23332c;
+      --ink-0: #eae6d9;
+      --ink-1: #c7c3b4;
+      --ink-2: #93998f;
+      --brass: #d3b158;
+      --brass-strong: #e8c76c;
+      --cli: #7fa8cc;
+      --mcp: #b28fca;
+      --hold: #6fbd82;
+      --fold: #d97a63;
+      --line: rgba(234, 230, 217, 0.12);
+      --card-bg: #1c2b25;
+      --shadow: rgba(0, 0, 0, 0.35);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --felt-0: #141e1a;
+    --felt-1: #1a2723;
+    --felt-2: #23332c;
+    --ink-0: #eae6d9;
+    --ink-1: #c7c3b4;
+    --ink-2: #93998f;
+    --brass: #d3b158;
+    --brass-strong: #e8c76c;
+    --cli: #7fa8cc;
+    --mcp: #b28fca;
+    --hold: #6fbd82;
+    --fold: #d97a63;
+    --line: rgba(234, 230, 217, 0.12);
+    --card-bg: #1c2b25;
+    --shadow: rgba(0, 0, 0, 0.35);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--felt-0);
+    color: var(--ink-0);
+    font-family: "Public Sans", -apple-system, "Segoe UI", sans-serif;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .card, .path-card { transition: transform 0.18s ease, box-shadow 0.18s ease; }
+    .card:hover, .path-card:hover { transform: translateY(-2px); box-shadow: 0 10px 28px var(--shadow); }
+  }
+
+  main {
+    max-width: 920px;
+    margin: 0 auto;
+    padding: 3.5rem 1.5rem 5rem;
+  }
+
+  /* ── Masthead ────────────────────────────────────────────── */
+
+  .masthead {
+    padding-bottom: 2.25rem;
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 3rem;
+  }
+
+  .eyebrow {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 0.78rem;
+    font-weight: 500;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--brass-strong);
+    margin-bottom: 1rem;
+  }
+
+  h1 {
+    font-family: "Fraunces", Georgia, serif;
+    font-weight: 600;
+    font-size: clamp(2.2rem, 5.2vw, 3.2rem);
+    line-height: 1.05;
+    letter-spacing: -0.01em;
+    margin: 0 0 1rem;
+    text-wrap: balance;
+  }
+
+  h1 em {
+    font-style: italic;
+    font-weight: 500;
+    color: var(--brass-strong);
+  }
+
+  .dek {
+    max-width: 66ch;
+    color: var(--ink-1);
+    font-size: 1.08rem;
+    margin: 0;
+  }
+
+  section { margin-bottom: 3.25rem; }
+
+  .section-head { margin-bottom: 1.3rem; }
+
+  .section-head h2 {
+    font-family: "Fraunces", Georgia, serif;
+    font-weight: 600;
+    font-size: 1.6rem;
+    margin: 0 0 0.35rem;
+    letter-spacing: -0.005em;
+  }
+
+  .section-head p { margin: 0; font-size: 0.98rem; }
+
+  p { color: var(--ink-1); max-width: 68ch; }
+
+  code {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 0.86em;
+    background: color-mix(in srgb, var(--brass) 12%, transparent);
+    padding: 0.05em 0.4em;
+    border-radius: 4px;
+  }
+
+  /* ── Comparison table ────────────────────────────────────── */
+
+  .table-wrap {
+    overflow-x: auto;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: var(--card-bg);
+    box-shadow: 0 1px 2px var(--shadow);
+  }
+
+  table { width: 100%; border-collapse: collapse; min-width: 620px; }
+
+  th, td {
+    text-align: left;
+    padding: 0.95rem 1.15rem;
+    border-bottom: 1px solid var(--line);
+    vertical-align: top;
+    font-size: 0.93rem;
+  }
+
+  thead th {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 0.74rem;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--ink-2);
+    font-weight: 600;
+    background: var(--felt-1);
+  }
+
+  thead th.tag-cli { color: var(--cli); }
+  thead th.tag-mcp { color: var(--mcp); }
+
+  tbody th {
+    font-weight: 600;
+    color: var(--ink-0);
+    white-space: nowrap;
+    background: transparent;
+  }
+
+  tbody tr:last-child td, tbody tr:last-child th { border-bottom: none; }
+
+  td strong { color: var(--ink-0); }
+
+  /* ── Path cards (recommendation per app) ─────────────────── */
+
+  .path-grid { display: grid; gap: 1.2rem; }
+
+  .path-card {
+    background: var(--card-bg);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 1.6rem 1.75rem;
+    box-shadow: 0 1px 2px var(--shadow);
+  }
+
+  .path-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.9rem;
+  }
+
+  .path-top h3 {
+    font-family: "Fraunces", Georgia, serif;
+    font-weight: 600;
+    font-size: 1.3rem;
+    margin: 0;
+  }
+
+  .path-top .repo {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 0.8rem;
+    color: var(--ink-2);
+  }
+
+  .verdict-pill {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 0.76rem;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    padding: 0.35rem 0.85rem;
+    border-radius: 999px;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .verdict-pill.http { background: color-mix(in srgb, var(--hold) 16%, transparent); color: var(--hold); }
+  .verdict-pill.mcp { background: color-mix(in srgb, var(--mcp) 18%, transparent); color: var(--mcp); }
+
+  .path-body { display: grid; grid-template-columns: 1fr 1fr; gap: 1.4rem; }
+
+  @media (max-width: 600px) { .path-body { grid-template-columns: 1fr; } }
+
+  .path-col h4 {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 0.72rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink-2);
+    margin: 0 0 0.5rem;
+  }
+
+  .path-col p { font-size: 0.93rem; margin: 0; }
+
+  .steps {
+    list-style: none;
+    margin: 0.75rem 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+  }
+
+  .steps li {
+    font-size: 0.88rem;
+    color: var(--ink-1);
+    display: flex;
+    gap: 0.6rem;
+    align-items: baseline;
+  }
+
+  .steps li::before {
+    content: "→";
+    color: var(--brass-strong);
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+
+  /* ── Flow diagram ────────────────────────────────────────── */
+
+  .flow {
+    background: var(--felt-1);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 2rem 1.75rem;
+    overflow-x: auto;
+  }
+
+  .flow-row {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    min-width: 720px;
+    margin-bottom: 1rem;
+  }
+
+  .flow-row:last-child { margin-bottom: 0; }
+
+  .node {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 0.8rem;
+    font-weight: 600;
+    padding: 0.55rem 0.9rem;
+    border-radius: 8px;
+    border: 1px solid var(--line);
+    background: var(--card-bg);
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .node.core { border-color: var(--brass); color: var(--brass-strong); font-weight: 700; }
+  .node.cli-node { border-color: var(--cli); color: var(--cli); }
+  .node.mcp-node { border-color: var(--mcp); color: var(--mcp); }
+
+  .arrow {
+    color: var(--ink-2);
+    font-size: 0.95rem;
+    flex-shrink: 0;
+  }
+
+  .flow-label {
+    font-size: 0.78rem;
+    color: var(--ink-2);
+    margin-left: 0.3rem;
+    flex-shrink: 0;
+  }
+
+  /* ── Callout ─────────────────────────────────────────────── */
+
+  .callout {
+    border-left: 3px solid var(--brass);
+    padding: 0.2rem 0 0.2rem 1.2rem;
+    margin-top: 1.5rem;
+  }
+
+  .callout strong { color: var(--ink-0); }
+
+  footer {
+    margin-top: 3.5rem;
+    padding-top: 1.75rem;
+    border-top: 1px solid var(--line);
+    font-family: "JetBrains Mono", monospace;
+    font-size: 0.8rem;
+    color: var(--ink-2);
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  a { color: var(--brass-strong); }
+
+  a:focus-visible, .card:focus-visible, .path-card:focus-visible {
+    outline: 2px solid var(--brass-strong);
+    outline-offset: 2px;
+  }
+</style>
+
+<main>
+
+  <div class="masthead">
+    <div class="eyebrow">holdemfoldem · integration guide</div>
+    <h1>Two ways into the same table.<br><em>Which one deals to your app.</em></h1>
+    <p class="dek">
+      <code>backend/core.py</code> computes one verdict. The CLI and the MCP server are just two
+      doors into the same room — the right one depends on who's asking and from where.
+      Below: how they actually differ, then a specific read on
+      <strong>nuwrrrld-portal</strong> and <strong>schwab-nu1</strong>.
+    </p>
+  </div>
+
+  <section>
+    <div class="section-head">
+      <h2>Compare the hand</h2>
+      <p>Same engine underneath both — the difference is entirely in who's on the other end.</p>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">Dimension</th>
+            <th scope="col" class="tag-cli">holdfold CLI</th>
+            <th scope="col" class="tag-mcp">holdemfoldem-mcp</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th scope="row">Who calls it</th>
+            <td>A person, or a shell script, at a terminal</td>
+            <td>An LLM (Claude Code) mid-conversation</td>
+          </tr>
+          <tr>
+            <th scope="row">Transport</th>
+            <td>In-process import of <code>core.py</code>, HTTP fallback</td>
+            <td>Always HTTP, wraps a running backend</td>
+          </tr>
+          <tr>
+            <th scope="row">Output shape</th>
+            <td>Rich terminal panel, or raw JSON with <code>--json</code></td>
+            <td>Compact prose summary — never the raw ~50-field payload</td>
+          </tr>
+          <tr>
+            <th scope="row">Success signal</th>
+            <td><strong>Exit code</strong> encodes the verdict (0/1/2/3) — scriptable</td>
+            <td>Text the model reads and reasons over — no numeric contract</td>
+          </tr>
+          <tr>
+            <th scope="row">Best for</th>
+            <td>Cron jobs, CI gates, quick manual checks, piping into other tools</td>
+            <td>"What's the verdict on what I'm holding" inside a coding session</td>
+          </tr>
+          <tr>
+            <th scope="row">Needs running</th>
+            <td>Nothing, if the local mamba env + sibling repo exist</td>
+            <td>The FastAPI backend must already be up — no fallback</td>
+          </tr>
+          <tr>
+            <th scope="row">Wrong tool if…</th>
+            <td>You're inside a web request — don't shell out from a server route</td>
+            <td>You need a numeric result a program branches on</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="callout">
+      <strong>Neither is the web integration.</strong> A Next.js server route calling the
+      FastAPI backend directly over <code>fetch()</code> is a third, distinct path — and it's
+      the one your web apps should already be using.
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>The casefiles</h2>
+      <p>What each app actually is changes which door fits — and one of them is already through it.</p>
+    </div>
+
+    <div class="path-grid">
+
+      <div class="path-card">
+        <div class="path-top">
+          <div>
+            <h3>nuwrrrld-portal</h3>
+            <span class="repo">Next.js 16 · Clerk · Neon</span>
+          </div>
+          <span class="verdict-pill http">already correct — direct HTTP</span>
+        </div>
+        <div class="path-body">
+          <div class="path-col">
+            <h4>What's already there</h4>
+            <p>
+              <code>app/api/analyze/route.ts</code> proxies straight to
+              <code>holdemfoldemapp</code>'s <code>/api/analyze</code> via <code>MCP_ANALYZE_URL</code> —
+              server-to-server, cached, auth-gated. This is correct: a web server should never
+              shell out to a CLI or speak stdio MCP from inside a request handler.
+            </p>
+          </div>
+          <div class="path-col">
+            <h4>The gap worth closing</h4>
+            <p>The portal already sends <code>position_lots</code> in its request schema — but nothing populates it from a real position today.</p>
+            <ul class="steps">
+              <li>Confirm <code>MCP_ANALYZE_URL</code> is set in every deployed environment, not just local — the route 503s cleanly if it isn't, but that's still a gap worth closing before it's noticed live.</li>
+              <li>Where the portal has real lot data (a linked Schwab account, a manual watchlist entry), populate <code>position_lots</code> in the existing request instead of leaving it empty — the backend already computes P&amp;L, aging, and cost-basis-method comparisons once it's there.</li>
+              <li>Leave the CLI and MCP server out of this app entirely — they add a process boundary a fetch call doesn't need.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="path-card">
+        <div class="path-top">
+          <div>
+            <h3>schwab-nu1</h3>
+            <span class="repo">Next.js 15 · Drizzle · read-only Schwab OAuth</span>
+          </div>
+          <span class="verdict-pill mcp">bring in the MCP server</span>
+        </div>
+        <div class="path-body">
+          <div class="path-col">
+            <h4>What's already there</h4>
+            <p>
+              A real FIFO lot-reconstruction engine (<code>src/lib/schwab/lots.ts</code>) that
+              already produces exactly the shape <code>PositionLot</code> wants — <code>qty</code>,
+              <code>costBasis</code>, acquisition date — from real Schwab transaction history.
+              No MCP config exists yet in this repo.
+            </p>
+          </div>
+          <div class="path-col">
+            <h4>Where each door fits</h4>
+            <ul class="steps">
+              <li><strong>In the app itself:</strong> same pattern as the portal — a thin server route forwards a reconstructed lot to <code>/api/analyze</code> directly. No CLI, no MCP, for the same reason.</li>
+              <li><strong>In development:</strong> this is where the MCP server earns its place. Register <code>holdemfoldem-mcp</code> for Claude Code sessions in this repo, and a dev debugging a lot-matching edge case can ask "what's the verdict on this position" without leaving the conversation to curl the backend.</li>
+              <li><strong>For CI:</strong> the CLI's exit codes are a natural fit for a scheduled check — e.g. a nightly script that runs <code>holdfold verdict</code> across open positions and alerts only on FOLD EM, using the exit code rather than parsing JSON.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>How it actually flows</h2>
+      <p>One engine, three doors, each shaped for who's knocking.</p>
+    </div>
+    <div class="flow">
+      <div class="flow-row">
+        <span class="node cli-node">holdfold CLI</span>
+        <span class="arrow">→</span>
+        <span class="node core">core.compute_verdict</span>
+        <span class="flow-label">terminal, scripts, CI — reads the exit code</span>
+      </div>
+      <div class="flow-row">
+        <span class="node mcp-node">holdemfoldem-mcp</span>
+        <span class="arrow">→</span>
+        <span class="node">FastAPI /api/analyze</span>
+        <span class="arrow">→</span>
+        <span class="node core">core.compute_verdict</span>
+        <span class="flow-label">Claude Code sessions — reads the prose summary</span>
+      </div>
+      <div class="flow-row">
+        <span class="node" style="border-color: var(--hold); color: var(--hold);">nuwrrrld-portal / schwab-nu1</span>
+        <span class="arrow">→</span>
+        <span class="node">FastAPI /api/analyze</span>
+        <span class="arrow">→</span>
+        <span class="node core">core.compute_verdict</span>
+        <span class="flow-label">web servers — reads the JSON, renders it</span>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <span>backend/core.py · backend/cli/ · backend/mcp_server/</span>
+    <span><a href="https://github.com/adamaslan/holdemfoldem">github.com/adamaslan/holdemfoldem</a></span>
+  </footer>
+
+</main>
