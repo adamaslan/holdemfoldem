@@ -58,11 +58,12 @@ gcp-config.json
 .claude/settings.local.json
 
 # Local docs / test results — everything under docs/ is ignored by default,
-# except the wiki (docs/wiki-holdfold/) and the CLI/MCP guide, which are
-# meant to ship in version control.
+# except the wiki (docs/wiki-holdfold/), the CLI/MCP guide, and published
+# HTML summaries, which are meant to ship in version control.
 docs/*
 !docs/wiki-holdfold/
 !docs/cli-and-mcp-guide.md
+!docs/summaries/
 
 # Test artifacts
 htmlcov/

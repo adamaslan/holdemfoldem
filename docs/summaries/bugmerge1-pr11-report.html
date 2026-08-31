@@ -1,0 +1,627 @@
+<title>The Drain</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Public+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap">
+
+<style>
+  :root {
+    --felt-0: #f6f1e6;
+    --felt-1: #ece3d0;
+    --felt-2: #ddd0b4;
+    --ink-0: #1c2320;
+    --ink-1: #3a423d;
+    --ink-2: #5c655e;
+    --brass: #96742a;
+    --brass-strong: #7a5c1e;
+    --hold: #3f7a4f;
+    --fold: #a8432f;
+    --line: rgba(28, 35, 32, 0.14);
+    --card-bg: #fffdf8;
+    --shadow: rgba(28, 23, 10, 0.10);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --felt-0: #141e1a;
+      --felt-1: #1a2723;
+      --felt-2: #23332c;
+      --ink-0: #eae6d9;
+      --ink-1: #c7c3b4;
+      --ink-2: #93998f;
+      --brass: #d3b158;
+      --brass-strong: #e8c76c;
+      --hold: #6fbd82;
+      --fold: #d97a63;
+      --line: rgba(234, 230, 217, 0.12);
+      --card-bg: #1c2b25;
+      --shadow: rgba(0, 0, 0, 0.35);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --felt-0: #141e1a;
+    --felt-1: #1a2723;
+    --felt-2: #23332c;
+    --ink-0: #eae6d9;
+    --ink-1: #c7c3b4;
+    --ink-2: #93998f;
+    --brass: #d3b158;
+    --brass-strong: #e8c76c;
+    --hold: #6fbd82;
+    --fold: #d97a63;
+    --line: rgba(234, 230, 217, 0.12);
+    --card-bg: #1c2b25;
+    --shadow: rgba(0, 0, 0, 0.35);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--felt-0);
+    color: var(--ink-0);
+    font-family: "Public Sans", -apple-system, "Segoe UI", sans-serif;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .card { transition: transform 0.18s ease, box-shadow 0.18s ease; }
+    .card:hover { transform: translateY(-2px); box-shadow: 0 10px 28px var(--shadow); }
+    a { transition: color 0.15s ease; }
+  }
+
+  main {
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 3.5rem 1.5rem 5rem;
+  }
+
+  /* ── Masthead ────────────────────────────────────────────── */
+
+  .masthead {
+    display: flex;
+    flex-direction: column;
+    gap: 1.1rem;
+    padding-bottom: 2.25rem;
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 2.75rem;
+  }
+
+  .eyebrow {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 0.78rem;
+    font-weight: 500;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--brass-strong);
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+  }
+
+  .eyebrow::before {
+    content: "";
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--hold);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--hold) 22%, transparent);
+    flex-shrink: 0;
+  }
+
+  h1 {
+    font-family: "Fraunces", Georgia, serif;
+    font-weight: 600;
+    font-size: clamp(2.3rem, 5.5vw, 3.4rem);
+    line-height: 1.04;
+    letter-spacing: -0.01em;
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  h1 em {
+    font-style: italic;
+    font-weight: 500;
+    color: var(--brass-strong);
+  }
+
+  .dek {
+    max-width: 62ch;
+    color: var(--ink-1);
+    font-size: 1.08rem;
+  }
+
+  .stakes {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 0.75rem;
+    margin-top: 0.75rem;
+  }
+
+  .stake {
+    background: var(--card-bg);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 0.85rem 1rem;
+  }
+
+  .stake .num {
+    font-family: "JetBrains Mono", monospace;
+    font-variant-numeric: tabular-nums;
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: var(--brass-strong);
+    display: block;
+    line-height: 1.1;
+  }
+
+  .stake .label {
+    font-size: 0.76rem;
+    color: var(--ink-2);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  /* ── Section scaffolding ─────────────────────────────────── */
+
+  section { margin-bottom: 3rem; }
+
+  .section-head {
+    display: flex;
+    align-items: baseline;
+    gap: 0.85rem;
+    margin-bottom: 1.15rem;
+    flex-wrap: wrap;
+  }
+
+  .section-head h2 {
+    font-family: "Fraunces", Georgia, serif;
+    font-weight: 600;
+    font-size: 1.55rem;
+    margin: 0;
+    letter-spacing: -0.005em;
+  }
+
+  .section-tag {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 0.72rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink-2);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 0.15rem 0.6rem;
+  }
+
+  p { color: var(--ink-1); max-width: 68ch; }
+
+  /* ── PR cards ────────────────────────────────────────────── */
+
+  .card {
+    background: var(--card-bg);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 1.5rem 1.6rem;
+    box-shadow: 0 1px 2px var(--shadow);
+  }
+
+  .pr-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+    margin-bottom: 1rem;
+  }
+
+  .pr-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+
+  .pr-num {
+    font-family: "JetBrains Mono", monospace;
+    color: var(--brass-strong);
+    font-weight: 600;
+  }
+
+  .pr-title {
+    font-weight: 600;
+    color: var(--ink-0);
+    margin: 0.15rem 0 0;
+  }
+
+  .pill {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    padding: 0.28rem 0.65rem;
+    border-radius: 999px;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .pill.merged { background: color-mix(in srgb, var(--hold) 16%, transparent); color: var(--hold); }
+
+  .commit {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 0.85rem;
+    color: var(--ink-2);
+  }
+
+  /* ── Findings table (round hands) ───────────────────────── */
+
+  .round {
+    border-left: 3px solid var(--brass);
+    padding-left: 1.25rem;
+    margin-bottom: 1.75rem;
+  }
+
+  .round-head {
+    display: flex;
+    align-items: baseline;
+    gap: 0.6rem;
+    margin-bottom: 0.9rem;
+  }
+
+  .round-head .deal {
+    font-family: "Fraunces", Georgia, serif;
+    font-style: italic;
+    font-weight: 500;
+    font-size: 1.15rem;
+    color: var(--ink-0);
+  }
+
+  .round-head .meta {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 0.78rem;
+    color: var(--ink-2);
+  }
+
+  .findings { display: flex; flex-direction: column; gap: 0.6rem; }
+
+  .finding {
+    display: grid;
+    grid-template-columns: 1.9rem 1fr;
+    gap: 0.8rem;
+    padding: 0.75rem 0.9rem;
+    background: var(--card-bg);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    align-items: start;
+  }
+
+  .sev {
+    width: 1.9rem;
+    height: 1.9rem;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 0.68rem;
+    font-weight: 700;
+    color: var(--felt-0);
+    flex-shrink: 0;
+  }
+
+  .sev.major { background: var(--fold); }
+  .sev.minor { background: var(--brass); color: var(--ink-0); }
+  .sev.fixed-doc { background: var(--ink-2); color: var(--felt-0); }
+
+  .finding-body strong { display: block; font-size: 0.96rem; color: var(--ink-0); margin-bottom: 0.15rem; }
+  .finding-body span { font-size: 0.89rem; color: var(--ink-1); }
+  .finding-body code {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 0.84em;
+    background: color-mix(in srgb, var(--brass) 12%, transparent);
+    padding: 0.05em 0.35em;
+    border-radius: 4px;
+  }
+
+  .deferred-note {
+    margin-top: 0.9rem;
+    padding: 0.85rem 1rem;
+    background: color-mix(in srgb, var(--ink-2) 8%, transparent);
+    border-radius: 10px;
+    font-size: 0.88rem;
+    color: var(--ink-1);
+  }
+
+  .deferred-note strong { color: var(--ink-0); }
+
+  /* ── Scoreboard footer ───────────────────────────────────── */
+
+  .scoreboard {
+    background: var(--felt-1);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 2rem 2.2rem;
+  }
+
+  .scoreboard h2 {
+    font-family: "Fraunces", Georgia, serif;
+    font-weight: 600;
+    font-size: 1.4rem;
+    margin: 0 0 1.3rem;
+  }
+
+  .board-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 1.4rem;
+  }
+
+  .board-item .num {
+    font-family: "JetBrains Mono", monospace;
+    font-variant-numeric: tabular-nums;
+    font-size: 2rem;
+    font-weight: 600;
+    color: var(--hold);
+    line-height: 1;
+    display: flex;
+    align-items: baseline;
+    gap: 0.3rem;
+  }
+
+  .board-item .num small {
+    font-size: 0.95rem;
+    color: var(--ink-2);
+    font-weight: 500;
+  }
+
+  .board-item .label {
+    font-size: 0.82rem;
+    color: var(--ink-2);
+    margin-top: 0.25rem;
+  }
+
+  /* ── Verified strip ──────────────────────────────────────── */
+
+  .verified-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    margin-top: 1.5rem;
+    padding-top: 1.4rem;
+    border-top: 1px solid var(--line);
+  }
+
+  .chip {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 0.78rem;
+    background: var(--card-bg);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 0.35rem 0.8rem;
+    color: var(--ink-1);
+  }
+
+  .chip.ok::before { content: "✓ "; color: var(--hold); font-weight: 700; }
+
+  footer {
+    margin-top: 3.5rem;
+    padding-top: 1.75rem;
+    border-top: 1px solid var(--line);
+    font-family: "JetBrains Mono", monospace;
+    font-size: 0.8rem;
+    color: var(--ink-2);
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  footer a { color: var(--brass-strong); text-decoration: none; }
+  footer a:hover { text-decoration: underline; }
+
+  a:focus-visible, .card:focus-visible {
+    outline: 2px solid var(--brass-strong);
+    outline-offset: 2px;
+  }
+</style>
+
+<main>
+
+  <div class="masthead">
+    <div class="eyebrow">bugmerge1 · drain report</div>
+    <h1>Two hands dealt,<br><em>zero left on the table.</em></h1>
+    <p class="dek">
+      The <code style="font-family:'JetBrains Mono',monospace;background:color-mix(in srgb, var(--brass) 12%, transparent); padding:0.05em 0.4em; border-radius:4px;">holdemfoldem</code>
+      backend's CLI-and-MCP queue, drained: one feature PR, two review rounds with
+      CodeRabbit, nine verified bugs fixed, and a one-line follow-up to close the books.
+    </p>
+    <div class="stakes">
+      <div class="stake"><span class="num">2</span><span class="label">PRs merged</span></div>
+      <div class="stake"><span class="num">9</span><span class="label">bugs fixed</span></div>
+      <div class="stake"><span class="num">34</span><span class="label">unit tests</span></div>
+      <div class="stake"><span class="num">9/9</span><span class="label">e2e passing</span></div>
+      <div class="stake"><span class="num">0</span><span class="label">open PRs</span></div>
+    </div>
+  </div>
+
+  <section>
+    <div class="section-head">
+      <h2>The pull requests</h2>
+      <span class="section-tag">repo: adamaslan/holdemfoldem</span>
+    </div>
+
+    <div class="card pr-card">
+      <div class="pr-top">
+        <div>
+          <span class="pr-num">#11</span>
+          <p class="pr-title">Add holdfold CLI and MCP server, extract shared verdict core</p>
+        </div>
+        <span class="pill merged">merged · squash</span>
+      </div>
+      <p style="margin:0; font-size:0.94rem;">
+        Extracted the HOLD&nbsp;EM / FOLD&nbsp;EM verdict engine into <code>backend/core.py</code>
+        so a new Typer CLI and a stdio MCP server could share it instead of duplicating
+        FastAPI-coupled logic.
+      </p>
+      <div class="commit">commit b941a78</div>
+    </div>
+
+    <div class="card pr-card" style="margin-bottom:0;">
+      <div class="pr-top">
+        <div>
+          <span class="pr-num">#12</span>
+          <p class="pr-title">Log PR #11 merge in wiki-holdfold</p>
+        </div>
+        <span class="pill merged">merged · squash</span>
+      </div>
+      <p style="margin:0; font-size:0.94rem;">
+        One-line append to the project wiki's operations log — closing the loop the
+        merged branch's deletion had opened.
+      </p>
+      <div class="commit">commit f904530</div>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>What the reviewer found</h2>
+      <span class="section-tag">coderabbit · 2 rounds</span>
+    </div>
+
+    <div class="round">
+      <div class="round-head">
+        <span class="deal">First hand</span>
+        <span class="meta">3 major inline + 20 bundled minor</span>
+      </div>
+      <div class="findings">
+        <div class="finding">
+          <span class="sev major">A</span>
+          <div class="finding-body">
+            <strong>Pipeline outage read as FOLD&nbsp;EM</strong>
+            <span>CLI didn't catch <code>AnalysisUnavailableError</code> — an uncaught traceback exited status 1, identical to the FOLD EM exit code.</span>
+          </div>
+        </div>
+        <div class="finding">
+          <span class="sev major">B</span>
+          <div class="finding-body">
+            <strong>Wrong exception on a missing MCP path</strong>
+            <span>Raised <code>FileNotFoundError</code> instead of <code>ImportError</code>, so the CLI's own HTTP fallback never caught it.</span>
+          </div>
+        </div>
+        <div class="finding">
+          <span class="sev major">C</span>
+          <div class="finding-body">
+            <strong>Fractional lots understated P&amp;L by 2×</strong>
+            <span><code>unrealized_dollar / max(qty, 1)</code> clamped any position under 1 share — wrong for fractional stock or BTC-USD.</span>
+          </div>
+        </div>
+        <div class="finding">
+          <span class="sev major">D</span>
+          <div class="finding-body">
+            <strong>A <code>None</code> trade plan crashed the verdict</strong>
+            <span>Missing <code>or {}</code> guard let a null trade plan reach unprotected <code>.get()</code> calls — 500 instead of the documented 503.</span>
+          </div>
+        </div>
+        <div class="finding">
+          <span class="sev major">E</span>
+          <div class="finding-body">
+            <strong>Only HTTP 400 mapped to a client error</strong>
+            <span>422 (payload validation) and other 4xx fell through to "backend unreachable" — the wrong story for the user.</span>
+          </div>
+        </div>
+        <div class="finding">
+          <span class="sev major">F</span>
+          <div class="finding-body">
+            <strong>Cloud Run deploy was missing a file it now needs</strong>
+            <span><code>main.py</code> started importing <code>core.py</code>, but the Dockerfile and deploy script only ever shipped <code>main.py</code>.</span>
+          </div>
+        </div>
+        <div class="finding">
+          <span class="sev fixed-doc">doc</span>
+          <div class="finding-body">
+            <strong>Two cheap documentation fixes, same pass</strong>
+            <span>A typo'd constant name and a payoff-curve point count off by one (60 vs. the real 61), fixed while already in those files.</span>
+          </div>
+        </div>
+      </div>
+      <div class="deferred-note">
+        <strong>Deferred, not dropped —</strong> 12 minor/trivial nits (mostly wiki cross-reference
+        paths, plus a pre-existing event-loop note unrelated to this PR) logged for a future pass
+        rather than expanding this one.
+      </div>
+    </div>
+
+    <div class="round">
+      <div class="round-head">
+        <span class="deal">Second hand</span>
+        <span class="meta">re-review of the fix commit · 4 new findings</span>
+      </div>
+      <div class="findings">
+        <div class="finding">
+          <span class="sev major">G</span>
+          <div class="finding-body">
+            <strong>Mixed long/short lots could report a phantom profit</strong>
+            <span>The aggregate P&amp;L signed itself off the <em>first</em> lot only — a long and a short lot of equal size could net to zero but show a gain. Now rejected outright with a clear 400.</span>
+          </div>
+        </div>
+        <div class="finding">
+          <span class="sev minor">H</span>
+          <div class="finding-body">
+            <strong>The 4xx fix over-corrected</strong>
+            <span>Round one's fix mapped <em>every</em> 4xx to "invalid input" — but 401/403/404 are routing or auth problems, not the user's fault. Narrowed to 400 and 422 only.</span>
+          </div>
+        </div>
+        <div class="finding">
+          <span class="sev minor">I</span>
+          <div class="finding-body">
+            <strong>A non-object error body could crash the client</strong>
+            <span>An array or scalar JSON error response raised <code>AttributeError</code> instead of the documented exception. Guarded.</span>
+          </div>
+        </div>
+        <div class="finding">
+          <span class="sev fixed-doc">test</span>
+          <div class="finding-body">
+            <strong>A regression test wasn't testing the real code</strong>
+            <span>It recomputed the fix's formula inline rather than calling production code. Extracted <code>_per_share_pnl()</code> so the test actually exercises it.</span>
+          </div>
+        </div>
+      </div>
+      <div class="deferred-note">
+        <strong>Third pass —</strong> CodeRabbit was rate-limited on the next push. No new
+        findings surfaced; CI stayed green. Nothing left to act on.
+      </div>
+    </div>
+  </section>
+
+  <section class="scoreboard">
+    <h2>Final tally</h2>
+    <div class="board-grid">
+      <div class="board-item">
+        <div class="num">9<small>&nbsp;/&nbsp;9</small></div>
+        <div class="label">real, verified bugs fixed</div>
+      </div>
+      <div class="board-item">
+        <div class="num">34<small>&nbsp;tests</small></div>
+        <div class="label">pytest suite, all green</div>
+      </div>
+      <div class="board-item">
+        <div class="num">9<small>&nbsp;/&nbsp;9</small></div>
+        <div class="label">Playwright e2e, unchanged</div>
+      </div>
+      <div class="board-item">
+        <div class="num">0</div>
+        <div class="label">force-pushes over anyone's work</div>
+      </div>
+    </div>
+    <div class="verified-strip">
+      <span class="chip ok">live AAPL/MSFT/SPY smoke tests</span>
+      <span class="chip ok">fractional-lot fix confirmed 2×</span>
+      <span class="chip ok">mixed-side lots now 400</span>
+      <span class="chip ok">secrets scan clean, every commit</span>
+      <span class="chip ok">no .env files staged</span>
+    </div>
+  </section>
+
+  <footer>
+    <span>backend/core.py · backend/cli/ · backend/mcp_server/</span>
+    <span><a href="https://github.com/adamaslan/holdemfoldem">github.com/adamaslan/holdemfoldem</a></span>
+  </footer>
+
+</main>
