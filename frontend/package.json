@@ -8,7 +8,8 @@
     "start": "next start -p 3001",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
-    "test:e2e:report": "playwright show-report"
+    "test:e2e:report": "playwright show-report",
+    "gen:types": "mamba run -n fin-ai1 python ../backend/scripts/dump_openapi.py > .openapi.tmp.json && npx -y openapi-typescript@7 .openapi.tmp.json -o src/lib/holdfold.types.ts; rm -f .openapi.tmp.json"
   },
   "dependencies": {
     "next": "16.1.1",

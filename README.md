@@ -9,11 +9,11 @@ Combines `analyze_security` (150+ technical signals) + `get_trade_plan` (risk-si
 ```
 holdemfoldemapp/
 ├── backend/
-│   ├── main.py                    # Local dev FastAPI server (port 8001)
+│   ├── main.py                    # FastAPI adapter — local dev AND the Cloud Run entry point
+│   ├── core.py                    # Verdict engine (shared by HTTP, CLI, MCP server)
 │   └── cloud-run/
 │       ├── Dockerfile             # mambaorg/micromamba multi-stage build
-│       ├── environment.yml        # mamba deps
-│       └── main.py                # Cloud Run entry point (port 8080)
+│       └── environment.yml        # mamba deps
 ├── frontend/                      # Next.js 16
 │   └── src/app/
 │       ├── page.tsx               # Single-page UI
@@ -37,7 +37,7 @@ bash deploy-backend.sh
 ```
 
 The script:
-1. Assembles a temp build context merging `mcp-finance1/src/` + `mcp-finance1/fibonacci/` + `backend/cloud-run/`
+1. Assembles a temp build context merging `mcp-finance1/src/` + `mcp-finance1/fibonacci/` + `backend/main.py` + `backend/core.py` + `backend/cloud-run/{Dockerfile,environment.yml}`
 2. Runs `gcloud run deploy holdemfoldem-api --source .` (Cloud Build handles the Docker build)
 3. Prints the service URL
 

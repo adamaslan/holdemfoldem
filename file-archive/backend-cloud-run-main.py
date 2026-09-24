@@ -1,3 +1,11 @@
+# ---
+# ARCHIVED: 2026-09-24
+# REASON: pre-v5 Cloud Run stub, dead since PR #11. deploy-backend.sh ships
+#   backend/main.py + backend/core.py as the image main.py. This file lacked
+#   multi-lot P&L, Fibonacci, the options payoff engine and suppression, and
+#   its presence kept misleading readers (wiki open issue #3).
+# ---
+
 """
 Hold Em or Fold Em — Cloud Run entry point.
 Runs on port 8080 inside a mambaorg/micromamba container.

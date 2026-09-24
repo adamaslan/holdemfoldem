@@ -3,42 +3,25 @@ import { useState } from "react";
 import AiCouncilCommentary from "@/components/AiCouncilCommentary";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
-interface FibLevel { name: string; price: number; distance_pct: number; strength: string; type: string }
-interface Signal    { signal: string; desc: string; strength: string; ai_score?: number }
-interface OptionsLeg {
-  role: string;
-  strike: number | null;
-  expiry: string | null;
-  premium: number | null;
-}
-interface PayoffPoint { price: number; pnl: number }
+// Response types are generated from the backend's Pydantic models
+// (`npm run gen:types`) — do not hand-edit; regenerate after backend changes.
+import type { components } from "@/lib/holdfold.types";
 
-interface LotPnL {
-  lot_id: string | null;
-  qty: number;
-  cost_basis_effective: number;
-  acquired_at: string | null;
-  side: string;
-  unrealized_dollar: number;
-  unrealized_pct: number;
-}
-interface PositionAging {
-  earliest_acquired: string;
-  weighted_avg_age_days: number;
-  long_term_pct: number;
-  short_term_pct: number;
-}
-interface PositionPnL {
-  unrealized_dollar: number;
-  unrealized_pct: number;
-  realized_dollar: number;
-  fees_paid_total: number;
-  dividends_received: number | null;
-  split_adjustments_applied: number;
-  cost_basis_effective: number;
-  cost_basis_method: string;
-  breakdown_by_lot: LotPnL[] | null;
-}
+type Schemas = components["schemas"];
+type FibLevel      = Schemas["FibLevel"];
+type PayoffPoint   = Schemas["PayoffPoint"];
+type LotPnL        = Schemas["LotPnL"];
+type PositionAging = Schemas["PositionAging"];
+type PositionPnL   = Schemas["PositionPnL"];
+// The backend types these two as `list[dict]` (they pass MCP payloads through
+// with extra keys, so a strict Pydantic model would drop data). Narrow here to
+// the keys the UI actually reads.
+interface Signal { signal: string; desc: string; strength: string; ai_score?: number }
+interface ConfluenceZone { price: number; strength: string; signal_count: number; confluence_score: number }
+type Verdict = Omit<Schemas["HoldFoldVerdict"], "top_signals" | "fib_confluence_zones"> & {
+  top_signals: Signal[];
+  fib_confluence_zones: ConfluenceZone[];
+};
 
 // Form-side lot state
 interface LotForm {
@@ -51,39 +34,6 @@ interface LotForm {
   accountType: string;
 }
 
-interface Verdict {
-  symbol: string; asset_type: string; verdict: "HOLD EM" | "FOLD EM" | "NEUTRAL";
-  confidence: number; price: number; bias: string; risk_level: string; cached: boolean;
-  bullish_count: number; bearish_count: number; avg_score: number; top_signals: Signal[];
-  rsi: number | null; macd: number | null; adx: number | null; atr: number | null;
-  volatility_regime: string; volume_spike: string | null;
-  suppressions: { code: string; label: string }[];
-  trade_timeframe: string | null; entry: number | null; stop: number | null;
-  target: number | null; risk_reward: number | null; stop_pct: number | null;
-  upside_pct: number | null; vehicle: string | null; vehicle_notes: string | null;
-  primary_signal: string | null; supporting_signals: string[];
-  position_qty: number | null; position_entry: number | null; position_side: string;
-  position_pnl_pct: number | null; position_pnl_dollar: number | null;
-  position_vs_stop: string | null; position_vs_target: string | null;
-  position_aging: PositionAging | null;
-  position_pnl_detail: PositionPnL | null;
-  fib_levels: FibLevel[]; fib_confluence_zones: { price: number; strength: string; signal_count: number; confluence_score: number }[];
-  nearest_fib_support: number | null; nearest_fib_resistance: number | null;
-  options_greeks: { iv: number | null; pcr: number | null; delta_atm: number | null; theta_atm: number | null; vega_atm: number | null } | null;
-  options_strategy: string | null;
-  options_legs: OptionsLeg[] | null;
-  dte: number | null;
-  net_premium: number | null;
-  max_profit: number | null;
-  max_loss: number | null;
-  breakeven_prices: number[] | null;
-  spread_width: number | null;
-  pop: number | null;
-  strategy_note: string | null;
-  payoff_curve: PayoffPoint[] | null;
-  summary: string; data_timestamp: string | null;
-  disclaimer_version: string | null;
-}
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const PERIODS = [
