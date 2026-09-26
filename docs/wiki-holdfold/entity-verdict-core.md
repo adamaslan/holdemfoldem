@@ -43,7 +43,7 @@ Errors surface as plain Python exceptions instead of `HTTPException`, so callers
 
 ## Open questions
 
-- Should `backend/cloud-run/main.py` (a separate, older, simpler deployment variant with its own inline verdict logic, no Firestore, no multi-lot) also be migrated onto `core.py`? Left untouched in this pass — out of scope, and it may be intentionally divergent.
+- ~~Should `backend/cloud-run/main.py` also be migrated onto `core.py`?~~ **Resolved in PR #15:** it was not deployed (this PR's own packaging fix made the deploy ship `main.py` + `core.py`), so it was archived to `file-archive/` rather than migrated. `tests/test_deployed_entrypoint.py` now exercises the shipped app over HTTP.
 
 ## See also
 

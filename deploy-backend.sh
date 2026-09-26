@@ -17,8 +17,8 @@ echo ""
 # ── Build context ─────────────────────────────────────────────────────────────
 # The Dockerfile COPYs:
 #   cloud-run/environment.yml  →  from holdemfoldemapp/backend/cloud-run/
-#   cloud-run/main.py          →  from holdemfoldemapp/backend/cloud-run/
-#   cloud-run/core.py          →  from holdemfoldemapp/backend/cloud-run/
+#   cloud-run/main.py          →  from holdemfoldemapp/backend/main.py
+#   cloud-run/core.py          →  from holdemfoldemapp/backend/core.py
 #   src/                       →  from mcp-finance1/src/
 #   fibonacci/                 →  from mcp-finance1/fibonacci/
 #

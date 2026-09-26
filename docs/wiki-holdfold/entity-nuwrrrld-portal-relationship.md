@@ -25,9 +25,8 @@ holdemfoldemapp/
 │   │                            multi-lot P&L, Fibonacci, options payoff, Firestore cache
 │   │                            imports gcp-app-w-mcp1/mcp-finance1 via sys.path.insert (main.py:36-40)
 │   └── cloud-run/
-│       ├── main.py            ← DEPLOYED entrypoint, "v2" — a simplified subset of backend/main.py
 │       ├── Dockerfile
-│       └── environment.yml
+│       └── environment.yml      (the old stub main.py is archived in file-archive/)
 ├── frontend/
 │   └── src/
 │       ├── app/
@@ -46,7 +45,7 @@ holdemfoldemapp/
     └── archive/
 ```
 
-**Correction to a naming assumption:** `backend/main.py` is the fuller implementation (multi-lot P&L, Fibonacci, options payoff engine, Firestore cache — see [[entity-backend-api]] and [[overview#open-issues]]), but `backend/cloud-run/main.py` is what's actually deployed and publicly reachable. It is missing multi-lot P&L, Fibonacci, the options payoff engine, and the suppression pipeline. Any verdict returned from production has `position_pnl`, `position_aging`, `fib_levels`, and payoff fields as `null` regardless of what the client sends. This gap is tracked in [[overview#open-issues]] item 3 — it is not new information, just restated here because it directly affects the comparison below (a portal user hitting the equivalent gcp3 backend gets a similarly-shaped but differently-sourced verdict, and neither production surface has the local dev backend's full feature set).
+**Correction to a naming assumption:** `backend/main.py` is the fuller implementation (multi-lot P&L, Fibonacci, options payoff engine, Firestore cache — see [[entity-backend-api]] and [[overview#open-issues]]), and — *corrected 2026-09-24* — it is also what `deploy-backend.sh` ships (since PR #11). The stub `backend/cloud-run/main.py`, which this paragraph used to name as the deployed file, was archived in PR #15. The degradation below comes from a **stale production revision** (2026-03-24, predating #11), and a redeploy clears it. It is missing multi-lot P&L, Fibonacci, the options payoff engine, and the suppression pipeline. Any verdict returned from production has `position_pnl`, `position_aging`, `fib_levels`, and payoff fields as `null` regardless of what the client sends. This gap is tracked in [[overview#open-issues]] item 3 — it is not new information, just restated here because it directly affects the comparison below (a portal user hitting the equivalent gcp3 backend gets a similarly-shaped but differently-sourced verdict, and neither production surface has the local dev backend's full feature set).
 
 ## Relationship to gcp3-mobile (real integration)
 
@@ -59,12 +58,12 @@ gcp3-mobile/lib/clients/holdfold.ts
    healthHoldFold()  → GET  {BASE_URL}/health
         │
         ▼
-holdemfoldemapp/backend (main.py locally, cloud-run/main.py in prod)
+holdemfoldemapp/backend (backend/main.py, local and deployed)
 ```
 
 Its `HoldFoldVerdict` TypeScript interface is hand-copied to match holdemfoldemapp's real Pydantic response — the file's own comment states "matches the contract used by holdemfoldemapp/frontend" — including `position_pnl`, `fib_levels`, and `options_strategy`, none of which the portal's verdict type carries. This is the same [[overview#open-issues]] hand-rolled-type risk applying a second time, once in `page.tsx` and once more in this mobile client; a schema change to `HoldFoldVerdict` in `backend/main.py` must be propagated to both by hand.
 
-Because the mobile client hits `backend/cloud-run/main.py` in production, it inherits the same production gap noted above: `position_pnl`, `fib_levels`, and options fields will be `null` from the deployed URL even though the TypeScript type declares them as present (optional, so this doesn't break typing — it just silently under-delivers).
+Because the production revision predates PR #11 (see correction above), it inherits the same production gap noted above: `position_pnl`, `fib_levels`, and options fields will be `null` from the deployed URL even though the TypeScript type declares them as present (optional, so this doesn't break typing — it just silently under-delivers).
 
 The mobile wiki's own catalog is at `gcp3-mobile/docs/wiki-mobile/entity-backend-client.md` — **not** `entity-client-holdfold.md` as this wiki's `index.md` previously stated. That link has been corrected.
 
@@ -98,7 +97,7 @@ holdemfoldemapp/frontend/src/app/page.tsx      nuwrrrld-portal/app/dashboard/hol
 
 | | holdemfoldemapp | nuwrrrld-portal |
 |---|---|---|
-| Backend called | Its own FastAPI (`backend/cloud-run/main.py`) | External `gcp3-backend` Cloud Run service |
+| Backend called | Its own FastAPI (`backend/main.py`) | External `gcp3-backend` Cloud Run service |
 | Scope | One ticker per request, with lots/options the caller supplies | Batch: `/signals` returns verdicts for a tracked list, portal fans them into a dashboard |
 | Depth | Multi-lot P&L, cost basis, options Greeks/payoff (locally; missing in its own Cloud Run deploy) | None of that — RSI/MACD/ADX/signals only, no position or options math at any layer |
 | Auth | None | Clerk-gated, part of a subscription product |

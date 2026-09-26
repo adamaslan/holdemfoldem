@@ -2,7 +2,7 @@
 date: 2026-05-31
 type: entity
 tags: [fastapi, backend, api, verdict, holdfold]
-sources: [../backend/main.py, ../backend/core.py, ../backend/cloud-run/main.py]
+sources: [../backend/main.py, ../backend/core.py, ../deploy-backend.sh, ../backend/tests/test_deployed_entrypoint.py]
 ---
 
 # Entity: Backend API (`backend/main.py`)
@@ -82,7 +82,7 @@ warnings:        list[str]      # degraded indicators, stale data, etc.
 
 ### Local vs Cloud Run
 
-`backend/main.py` (local, v6) is the feature-complete version. `backend/cloud-run/main.py` is a stripped-down v2 (no multi-lot, no Fibonacci, no options payoff, no Firestore). The deploy script (`deploy-backend.sh`) uses the Cloud Run variant as the entrypoint — this means **the deployed backend has fewer features than the local one**. See Open Questions.
+There is one entrypoint. `backend/main.py` + `backend/core.py` run locally, and `deploy-backend.sh` ships the same pair as Cloud Run's `main.py` (true since PR #11). The old stripped-down `backend/cloud-run/main.py` was never deployed after #11 and was archived in PR #15. *Earlier revisions of this section said the deploy used the stub. That was wrong.*
 
 ### CORS
 
@@ -99,13 +99,13 @@ Configurable via `ALLOWED_ORIGINS` env var. Defaults to `localhost:3000,3001,300
 
 ## Known failures
 
-1. **Cloud Run deploy uses the simplified `main.py` — production is missing v6 features.** `backend/cloud-run/main.py` is the Cloud Run entrypoint. It lacks: multi-lot P&L (`position_lots` field silently ignored), Fibonacci analysis (`fib_levels` always null), options payoff engine (`payoff_points`, `payoff_max_profit`, `payoff_max_loss`, `payoff_breakevens`, `pop_estimate` all null), suppression pipeline. The `overview.md` status table marks multi-lot P&L as ✅ — that reflects local dev only. **In production, `HoldFoldVerdict` returns a structurally valid but functionally degraded response for any request that depends on those fields.** Mobile clients receive null for `position_pnl`, `position_aging`, `fib_levels`, and all payoff fields regardless of request payload.
+1. **Production is missing v6 features — because the revision is stale, not because of the entrypoint.** Corrected 2026-09-24: the gap is **stale deployment, not missing code**. Since PR #11, `deploy-backend.sh` ships `backend/main.py` + `backend/core.py` as the image's `main.py`, so a fresh deploy serves the full verdict. The running revision (`holdemfoldem-api-00003`, 2026-03-24) predates #11, so production stays degraded until someone redeploys. The dead stub was archived to `file-archive/backend-cloud-run-main.py` in PR #15, and `tests/test_deployed_entrypoint.py` now pins lots → `position_pnl_detail` and `fib_levels` on the shipped app. *Original (incorrect) diagnosis, kept for the record:* `backend/cloud-run/main.py` is the Cloud Run entrypoint. It lacks: multi-lot P&L (`position_lots` field silently ignored), Fibonacci analysis (`fib_levels` always null), options payoff engine (`payoff_points`, `payoff_max_profit`, `payoff_max_loss`, `payoff_breakevens`, `pop_estimate` all null), suppression pipeline. The `overview.md` status table marks multi-lot P&L as ✅ — that reflects local dev only. **In production, `HoldFoldVerdict` returns a structurally valid but functionally degraded response for any request that depends on those fields.** Mobile clients receive null for `position_pnl`, `position_aging`, `fib_levels`, and all payoff fields regardless of request payload.
 2. **No auth and no rate limiting** — the endpoint is open to anyone who knows the Cloud Run URL. Despite earlier wiki claims, no rate limiter is implemented (only CORS middleware is registered). There is no API-key, session, or per-IP throttle.
 3. **ALLOWED_ORIGINS not set at deploy** — `deploy-backend.sh` does not pass `ALLOWED_ORIGINS`. Production frontend origin must be set manually post-deploy.
 
 ## Open questions
 
-- Should `backend/cloud-run/main.py` be brought in sync with `backend/main.py`? The full suppression pipeline, multi-lot, Fibonacci, and options payoff would need to be ported. This is the single most impactful production gap. Note that the Cloud Run verdict logic is also simpler: it has no sub-55 fallback path — a directional-but-weak symbol returns `NEUTRAL` on Cloud Run but `HOLD EM`/`FOLD EM` (confidence × 0.85) on the local backend.
+- ~~Should `backend/cloud-run/main.py` be brought in sync with `backend/main.py`?~~ Moot: it was archived in PR #15, and the deploy already used `main.py` + `core.py`. The remaining action is a redeploy. *Original question:* The full suppression pipeline, multi-lot, Fibonacci, and options payoff would need to be ported. This is the single most impactful production gap. Note that the Cloud Run verdict logic is also simpler: it has no sub-55 fallback path — a directional-but-weak symbol returns `NEUTRAL` on Cloud Run but `HOLD EM`/`FOLD EM` (confidence × 0.85) on the local backend.
 
 ## See also
 

@@ -253,4 +253,4 @@ The script creates a temporary build context, copies in:
 
 Then it deploys the service as `holdemfoldem-api` with required secrets from Google Secret Manager.
 
-Note: [`backend/cloud-run/main.py`](./cloud-run/main.py) is an older, simpler Cloud Run entry point. The current deploy script uses [`backend/main.py`](./main.py) for Cloud Run.
+`backend/main.py` is the only entry point. The older Cloud Run stub that used to live at `backend/cloud-run/main.py` is archived at `file-archive/backend-cloud-run-main.py`.

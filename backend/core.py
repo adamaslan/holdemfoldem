@@ -318,7 +318,7 @@ class HoldFoldVerdict(BaseModel):
     # ── Core ──────────────────────────────────────────────────────────────────
     symbol:     str
     asset_type: str
-    verdict:    str    # HOLD EM | FOLD EM | NEUTRAL
+    verdict:    Literal["HOLD EM", "FOLD EM", "NEUTRAL"]
     confidence: float
     price:      float
     bias:       str

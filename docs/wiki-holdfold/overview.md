@@ -75,19 +75,19 @@ frontend page.tsx renders:
 | Signal pipeline | ✅ 18 detectors | All implemented; Gemini ranking optional |
 | Firestore cache | ✅ Active | 1h TTL; key = symbol only (no period); stale hits re-fetch synchronously |
 | Options payoff | ✅ 14 strategies | Per-share P&L curve, PoP estimate |
-| Multi-lot P&L | ⚠️ Local only | FIFO/LIFO/avg cost basis, dated lots, fee-aware — **not on Cloud Run**; `position_pnl` and `position_aging` are null in production |
+| Multi-lot P&L | ⚠️ Ships in image, prod awaiting redeploy | FIFO/LIFO/avg cost basis, dated lots, fee-aware — included in the deployed image since PR #11; `position_pnl` and `position_aging` stay null in production until the stale revision is redeployed |
 | AI Council (web) | ✅ Wired | `/api/council` proxy → ai-text-opt-1024; requires local :3001 in dev |
 | Disclaimer system | ✅ Implemented | Modal + footer; localStorage ack. Backend stamps `disclaimer_version` on each verdict (no separate audit-log endpoint) |
 | Mobile client | ✅ Wired in gcp3-mobile | See `gcp3-mobile/docs/wiki-mobile/entity-client-holdfold.md` |
 | Alpha Vantage fallback | ✅ Implemented | Activates on yfinance failure; requires `{alphavantage-api-key}` |
 | Gemini ranking | ⚠️ Optional | Circuit-breaker protects pipeline; rule-based fallback always available |
-| Type generation | ❌ Manual | `HoldFoldVerdict` TypeScript type in `page.tsx` is hand-rolled; not generated from Pydantic |
+| Type generation | ✅ Generated | `frontend/src/lib/holdfold.types.ts` is generated from the backend OpenAPI schema via `npm run gen:types` |
 
 ## Open Issues
 
-1. **Hand-rolled TypeScript types** — `HoldFoldVerdict` interface in `page.tsx` was not generated from Pydantic. Schema drift risk if backend adds fields.
+1. ~~**Hand-rolled TypeScript types**~~ — **resolved in PR #15.** `frontend/src/lib/holdfold.types.ts` is generated from the backend's OpenAPI schema (`npm run gen:types`, via `backend/scripts/dump_openapi.py`, with no running server needed). `verdict` is now a `Literal` in Pydantic. `top_signals` and `fib_confluence_zones` remain `list[dict]` on the backend (they pass MCP payloads through with extra keys) and are narrowed in `page.tsx`.
 2. **AI Council requires ai-text-opt-1024 running locally** — no fallback in the web frontend if the RAG server isn't up. Produces a 503 error on the "Ask the Council" button.
-3. **Cloud Run and local backends differ — confirmed production gap.** `backend/cloud-run/main.py` (the actual deployed entrypoint) is missing: multi-lot P&L, Fibonacci analysis, options payoff engine, and the suppression pipeline. Any `HoldFoldVerdict` returned from the production URL will have `position_pnl`, `position_aging`, `fib_levels`, and all payoff fields as `null` regardless of what the caller sends. See [[entity-backend-api#known-failures]] for the full field list.
+3. **Production is degraded — corrected diagnosis (2026-09-24).** Earlier revisions of this page blamed `backend/cloud-run/main.py`. In fact the gap is **stale deployment, not missing code**. Since PR #11, `deploy-backend.sh` ships `backend/main.py` + `backend/core.py` as the image's `main.py`, so a fresh deploy serves the full verdict. The running revision (`holdemfoldem-api-00003`, 2026-03-24) predates #11, so production stays degraded until someone redeploys. The dead stub was archived to `file-archive/backend-cloud-run-main.py` in PR #15, and `tests/test_deployed_entrypoint.py` now pins lots → `position_pnl_detail` and `fib_levels` on the shipped app. See [[entity-backend-api#known-failures]].
 4. **No auth or rate limiting on `/api/analyze`** — the backend is publicly callable. The only middleware in `backend/main.py` is CORS; there is no rate limiter, API key, or session requirement. See [[entity-backend-api#rate-limiting]].
 
 ## Key Design Decisions

@@ -67,7 +67,8 @@ The `raw/` directory is empty as of 2026-05-31. The wiki was synthesized from:
 | `docs/ai-council-integration.md` | AI Council design + proxy spec | `docs/` |
 | `docs/robustness-roadmap.md` | P0–P2 robustness improvements (multi-lot, disclaimer, resilience) | `docs/` |
 | `backend/main.py` | Full local backend (feature "v6"; `app.version="5.0"`) — AnalyzeRequest, HoldFoldVerdict, all helper functions | `backend/` |
-| `backend/cloud-run/main.py` | Simplified Cloud Run entrypoint (feature "v2"; `app.version="1.0"` — missing multi-lot, Fibonacci, payoff, suppressions, Firestore) | `backend/cloud-run/` |
+| `file-archive/backend-cloud-run-main.py` | *Archived in PR #15.* Pre-v5 Cloud Run stub that was not deployed after PR #11 | `file-archive/` |
+| `frontend/src/lib/holdfold.types.ts` | Generated response types (`npm run gen:types`) | `frontend/src/lib/` |
 | `frontend/src/app/page.tsx` | Next.js UI | `frontend/src/app/` |
 | `frontend/src/app/api/analyze/route.ts` | Analyze proxy | `frontend/src/app/api/analyze/` |
 | `frontend/src/app/api/council/route.ts` | Council proxy | `frontend/src/app/api/council/` |

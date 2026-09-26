@@ -23,7 +23,7 @@ curl -s -o /dev/null -w "%{http_code}" http://localhost:3001 | grep -q "200\|304
 # Check if local backend is running
 curl -s http://localhost:8000/health 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print('✅ Backend: Running -', d)" 2>/dev/null || \
   curl -s http://localhost:8000/ 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print('✅ Backend: Running -', d)" 2>/dev/null || \
-  echo "⚠️  Backend: Not running (activate fin-ai1 & run: python3 backend/cloud-run/main.py)"
+  echo "⚠️  Backend: Not running (activate fin-ai1 & run: cd backend && PORT=8000 python3 main.py)"
 ```
 
 ### 3. Mamba Environment (fin-ai1)
@@ -98,7 +98,7 @@ cd /Users/adamaslan/code/holdemfoldemapp/frontend && npm install
 **Backend not running:**
 ```bash
 source ~/.zshrc && mamba activate fin-ai1
-python3 /Users/adamaslan/code/holdemfoldemapp/backend/cloud-run/main.py
+cd /Users/adamaslan/code/holdemfoldemapp/backend && PORT=8000 python3 main.py
 ```
 
 **fin-ai1 env missing:**
@@ -121,4 +121,4 @@ gcloud auth application-default login
 
 ---
 
-**Dev workflow**: `/health-check` → `npm run dev` (frontend) + `mamba activate fin-ai1 && python3 backend/cloud-run/main.py` (backend) in separate terminals.
+**Dev workflow**: `/health-check` → `npm run dev` (frontend) + `mamba activate fin-ai1 && cd backend && PORT=8000 python3 main.py` (backend) in separate terminals.
