@@ -75,13 +75,13 @@ frontend page.tsx renders:
 | Signal pipeline | ✅ 18 detectors | All implemented; Gemini ranking optional |
 | Firestore cache | ✅ Active | 1h TTL; key = symbol only (no period); stale hits re-fetch synchronously |
 | Options payoff | ✅ 14 strategies | Per-share P&L curve, PoP estimate |
-| Multi-lot P&L | ⚠️ Local only | FIFO/LIFO/avg cost basis, dated lots, fee-aware — **not on Cloud Run**; `position_pnl` and `position_aging` are null in production |
+| Multi-lot P&L | ⚠️ Ships in image, prod awaiting redeploy | FIFO/LIFO/avg cost basis, dated lots, fee-aware — included in the deployed image since PR #11; `position_pnl` and `position_aging` stay null in production until the stale revision is redeployed |
 | AI Council (web) | ✅ Wired | `/api/council` proxy → ai-text-opt-1024; requires local :3001 in dev |
 | Disclaimer system | ✅ Implemented | Modal + footer; localStorage ack. Backend stamps `disclaimer_version` on each verdict (no separate audit-log endpoint) |
 | Mobile client | ✅ Wired in gcp3-mobile | See `gcp3-mobile/docs/wiki-mobile/entity-client-holdfold.md` |
 | Alpha Vantage fallback | ✅ Implemented | Activates on yfinance failure; requires `{alphavantage-api-key}` |
 | Gemini ranking | ⚠️ Optional | Circuit-breaker protects pipeline; rule-based fallback always available |
-| Type generation | ❌ Manual | `HoldFoldVerdict` TypeScript type in `page.tsx` is hand-rolled; not generated from Pydantic |
+| Type generation | ✅ Generated | `frontend/src/lib/holdfold.types.ts` is generated from the backend OpenAPI schema via `npm run gen:types` |
 
 ## Open Issues
 

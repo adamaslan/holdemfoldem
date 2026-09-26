@@ -9,7 +9,7 @@
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:report": "playwright show-report",
-    "gen:types": "mamba run -n fin-ai1 python ../backend/scripts/dump_openapi.py > .openapi.tmp.json && npx -y openapi-typescript@7 .openapi.tmp.json -o src/lib/holdfold.types.ts; rm -f .openapi.tmp.json"
+    "gen:types": "mamba run -n fin-ai1 python ../backend/scripts/dump_openapi.py > .openapi.tmp.json && npx -y openapi-typescript@7 .openapi.tmp.json -o src/lib/holdfold.types.ts; status=$?; rm -f .openapi.tmp.json; exit $status"
   },
   "dependencies": {
     "next": "16.1.1",

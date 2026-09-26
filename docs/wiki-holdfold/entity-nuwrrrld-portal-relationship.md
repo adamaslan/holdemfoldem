@@ -25,9 +25,8 @@ holdemfoldemapp/
 │   │                            multi-lot P&L, Fibonacci, options payoff, Firestore cache
 │   │                            imports gcp-app-w-mcp1/mcp-finance1 via sys.path.insert (main.py:36-40)
 │   └── cloud-run/
-│       ├── main.py            ← DEPLOYED entrypoint, "v2" — a simplified subset of backend/main.py
 │       ├── Dockerfile
-│       └── environment.yml
+│       └── environment.yml      (the old stub main.py is archived in file-archive/)
 ├── frontend/
 │   └── src/
 │       ├── app/
@@ -59,7 +58,7 @@ gcp3-mobile/lib/clients/holdfold.ts
    healthHoldFold()  → GET  {BASE_URL}/health
         │
         ▼
-holdemfoldemapp/backend (main.py locally, cloud-run/main.py in prod)
+holdemfoldemapp/backend (backend/main.py, local and deployed)
 ```
 
 Its `HoldFoldVerdict` TypeScript interface is hand-copied to match holdemfoldemapp's real Pydantic response — the file's own comment states "matches the contract used by holdemfoldemapp/frontend" — including `position_pnl`, `fib_levels`, and `options_strategy`, none of which the portal's verdict type carries. This is the same [[overview#open-issues]] hand-rolled-type risk applying a second time, once in `page.tsx` and once more in this mobile client; a schema change to `HoldFoldVerdict` in `backend/main.py` must be propagated to both by hand.
@@ -98,7 +97,7 @@ holdemfoldemapp/frontend/src/app/page.tsx      nuwrrrld-portal/app/dashboard/hol
 
 | | holdemfoldemapp | nuwrrrld-portal |
 |---|---|---|
-| Backend called | Its own FastAPI (`backend/cloud-run/main.py`) | External `gcp3-backend` Cloud Run service |
+| Backend called | Its own FastAPI (`backend/main.py`) | External `gcp3-backend` Cloud Run service |
 | Scope | One ticker per request, with lots/options the caller supplies | Batch: `/signals` returns verdicts for a tracked list, portal fans them into a dashboard |
 | Depth | Multi-lot P&L, cost basis, options Greeks/payoff (locally; missing in its own Cloud Run deploy) | None of that — RSI/MACD/ADX/signals only, no position or options math at any layer |
 | Auth | None | Clerk-gated, part of a subscription product |
