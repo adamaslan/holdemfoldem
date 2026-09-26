@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from core import PositionLot, PositionPnL, _compute_lots_pnl, _per_share_pnl
+from core import PositionLot, PositionPnL, _compute_lots_pnl, _extract_fib_levels, _per_share_pnl
 
 
 class TestFractionalQtyPnl:
@@ -75,3 +75,33 @@ class TestMixedSideLots:
             split_adjustments=0, dividends_received=None,
         )
         assert pnl.unrealized_dollar > 0
+
+
+class TestExtractFibLevels:
+    PRICE = 150.0
+
+    @staticmethod
+    def _lv(name: str, price: float) -> dict:
+        return {"name": name, "price": price, "strength": "s", "type": "retracement"}
+
+    def test_returns_nearest_levels_not_first_in_registry_order(self):
+        far = [self._lv(f"far{i}", 300.0 + i) for i in range(10)]
+        near = [self._lv("nearA", 149.0), self._lv("nearB", 152.0)]
+        levels, _, _, _ = _extract_fib_levels({"levels": far + near}, self.PRICE)
+        names = [lv.name for lv in levels]
+        assert len(levels) == 8
+        assert "nearA" in names and "nearB" in names
+
+    def test_nearest_support_and_resistance_use_every_level(self):
+        # Eight levels crowd just above price, so the only level below price
+        # is outside the returned ladder but is still the nearest support.
+        crowd = [self._lv(f"up{i}", 151.0 + i) for i in range(8)]
+        below = [self._lv("below", 100.0)]
+        levels, _, support, resistance = _extract_fib_levels({"levels": crowd + below}, self.PRICE)
+        assert support == 100.0
+        assert resistance == 151.0
+        assert "below" not in [lv.name for lv in levels]
+
+    def test_skips_zero_price_and_handles_empty(self):
+        assert _extract_fib_levels({"levels": [self._lv("z", 0)]}, self.PRICE)[0] == []
+        assert _extract_fib_levels({}, self.PRICE) == ([], [], None, None)

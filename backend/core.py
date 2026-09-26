@@ -620,26 +620,33 @@ def _position_eval(
     return round(pnl_pct, 2), round(pnl_dollar, 4), vs_stop, vs_target
 
 
+MAX_FIB_LEVELS = 8
+
+
 def _extract_fib_levels(
     fib_data: dict, current_price: float
 ) -> tuple[list[FibLevel], list[dict], float | None, float | None]:
     levels_raw = fib_data.get("levels", [])
     zones_raw  = fib_data.get("confluenceZones", [])
-    levels: list[FibLevel] = []
-    for lv in levels_raw[:8]:
+    all_levels: list[FibLevel] = []
+    for lv in levels_raw:
         lv_price = lv.get("price", 0)
         if not lv_price:
             continue
         dist_pct = ((lv_price - current_price) / current_price) * 100
-        levels.append(FibLevel(
+        all_levels.append(FibLevel(
             name=lv.get("name", lv.get("key", "")),
             price=round(lv_price, 4),
             distance_pct=round(dist_pct, 2),
             strength=lv.get("strength", ""),
             type=lv.get("type", ""),
         ))
-    below = [lv for lv in levels if lv.price < current_price]
-    above = [lv for lv in levels if lv.price > current_price]
+    # Registry order is not proximity order: truncating first could return
+    # eight levels nowhere near price. Nearest support/resistance come from
+    # every level so they stay correct whatever the ladder shows.
+    levels = sorted(all_levels, key=lambda lv: abs(lv.distance_pct))[:MAX_FIB_LEVELS]
+    below = [lv for lv in all_levels if lv.price < current_price]
+    above = [lv for lv in all_levels if lv.price > current_price]
     nearest_support    = max((lv.price for lv in below), default=None)
     nearest_resistance = min((lv.price for lv in above), default=None)
     top_zones = [
