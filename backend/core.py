@@ -103,8 +103,28 @@ def _get_firestore() -> MCPFirestoreCache | None:
 _FIRESTORE_CACHE_TTL_SECONDS = 3600  # 1 hour — prevents stale cached schemas
 
 
+def _cache_key_for(symbol: str, *parts: str | None) -> str:
+    """Build a Firestore cache key that is unique per (symbol, extra params).
+
+    Any parameter the underlying fetch depends on (period, and later interval)
+    must be folded into the key — a key of just `symbol` returns the same
+    cached document regardless of what period/interval was requested, so
+    switching the Period dropdown within the TTL window silently serves the
+    old period's data relabeled as the new one. See
+    docs/wiki-*/incident notes for the 2026-09 finding (portal FibLadder
+    mislabeling) this fixes.
+    """
+    key_parts = [symbol] + [p for p in parts if p is not None]
+    return ":".join(key_parts)
+
+
 async def _cached_or_fetch(tool_name: str, cache_key: str, fetch_fn):
-    """fetch_fn is a zero-arg callable that returns a coroutine (avoids unawaited-coroutine warnings)."""
+    """fetch_fn is a zero-arg callable that returns a coroutine (avoids unawaited-coroutine warnings).
+
+    `cache_key` must fold in every parameter the fetch result depends on
+    (symbol AND period, at minimum) — see `_cache_key_for`. A key of just the
+    symbol collides across periods within the TTL window.
+    """
     fs = _get_firestore()
     if fs:
         doc = fs.read_tool_result(tool_name, cache_key)
@@ -1230,10 +1250,11 @@ async def compute_verdict(req: AnalyzeRequest, request_id: str | None = None) ->
     degraded = False
 
     try:
+        cache_key = _cache_key_for(symbol, period)
         analysis_raw, trade_raw, fib_raw = await asyncio.gather(
-            _cached_or_fetch("analyze_security", symbol, lambda: analyze_security(symbol, period=period)),
-            _cached_or_fetch("get_trade_plan",   symbol, lambda: get_trade_plan(symbol, period=period)),
-            _cached_or_fetch("analyze_fibonacci", symbol, lambda: analyze_fibonacci(symbol, period=period)),
+            _cached_or_fetch("analyze_security", cache_key, lambda: analyze_security(symbol, period=period)),
+            _cached_or_fetch("get_trade_plan",   cache_key, lambda: get_trade_plan(symbol, period=period)),
+            _cached_or_fetch("analyze_fibonacci", cache_key, lambda: analyze_fibonacci(symbol, period=period)),
         )
         cached = bool(analysis_raw.get("cached", False))
 
