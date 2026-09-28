@@ -9,7 +9,8 @@ from __future__ import annotations
 
 import pytest
 
-from core import PositionLot, PositionPnL, _compute_lots_pnl, _per_share_pnl
+import core
+from core import PositionLot, PositionPnL, _compute_lots_pnl, _per_share_pnl, _cache_key_for, _cached_or_fetch
 
 
 class TestFractionalQtyPnl:
@@ -75,3 +76,82 @@ class TestMixedSideLots:
             split_adjustments=0, dividends_received=None,
         )
         assert pnl.unrealized_dollar > 0
+
+
+class _FakeFirestoreCache:
+    """In-memory stand-in for MCPFirestoreCache, keyed exactly like the real
+    one: (tool_name, cache_key) -> {"result": ..., "updated_at": ...}.
+    """
+
+    def __init__(self):
+        self.docs: dict[tuple[str, str], dict] = {}
+        self.reads: list[tuple[str, str]] = []
+        self.writes: list[tuple[str, str]] = []
+
+    def read_tool_result(self, tool_name: str, cache_key: str):
+        self.reads.append((tool_name, cache_key))
+        return self.docs.get((tool_name, cache_key))
+
+    def write_tool_result(self, tool_name: str, cache_key: str, result):
+        self.writes.append((tool_name, cache_key))
+        self.docs[(tool_name, cache_key)] = {
+            "result": result,
+            "updated_at": __import__("datetime").datetime.now(__import__("datetime").timezone.utc),
+        }
+
+
+class TestCacheKeyIncludesPeriod:
+    """Regression for the multi-timeframe cache bug (FIBONACCI.md §12.1, PO1):
+    `_cached_or_fetch`'s Firestore key used to be just `symbol`, so switching
+    the portal's Period dropdown inside the 1-hour TTL returned the OLD
+    period's ladder mislabeled as the new one. `analyze_security`,
+    `get_trade_plan` and `analyze_fibonacci` are all fetched with a cache key
+    built by `_cache_key_for(symbol, period)`, so two periods for one symbol
+    must land in two distinct Firestore documents.
+    """
+
+    def test_cache_key_differs_by_period(self):
+        assert _cache_key_for("AAPL", "1d") != _cache_key_for("AAPL", "1y")
+        assert _cache_key_for("AAPL", "1d") == _cache_key_for("AAPL", "1d")
+
+    def test_cache_key_omits_none_parts(self):
+        # options_risk_analysis has no period param — key stays symbol-only.
+        assert _cache_key_for("AAPL") == "AAPL"
+        assert _cache_key_for("AAPL", None) == "AAPL"
+
+    @pytest.mark.asyncio
+    async def test_two_periods_produce_two_cache_entries(self, monkeypatch):
+        fake_fs = _FakeFirestoreCache()
+        monkeypatch.setattr(core, "_get_firestore", lambda: fake_fs)
+
+        fetch_calls: list[str] = []
+
+        async def fetch_for(period: str):
+            fetch_calls.append(period)
+            return {"period": period, "levels": [f"level-for-{period}"]}
+
+        key_1d = _cache_key_for("AAPL", "1d")
+        key_1y = _cache_key_for("AAPL", "1y")
+
+        result_1d = await _cached_or_fetch(
+            "analyze_fibonacci", key_1d, lambda: fetch_for("1d")
+        )
+        result_1y = await _cached_or_fetch(
+            "analyze_fibonacci", key_1y, lambda: fetch_for("1y")
+        )
+
+        # Two distinct Firestore documents, not one overwritten by the other.
+        assert len(fake_fs.docs) == 2
+        assert ("analyze_fibonacci", key_1d) in fake_fs.docs
+        assert ("analyze_fibonacci", key_1y) in fake_fs.docs
+        assert result_1d["period"] == "1d"
+        assert result_1y["period"] == "1y"
+        assert fetch_calls == ["1d", "1y"]
+
+        # A second request for the *same* period hits the fresh cache and
+        # does not re-fetch — proves the fix didn't also break cache reuse.
+        result_1d_again = await _cached_or_fetch(
+            "analyze_fibonacci", key_1d, lambda: fetch_for("1d")
+        )
+        assert result_1d_again["period"] == "1d"
+        assert fetch_calls == ["1d", "1y"]  # no third fetch call
