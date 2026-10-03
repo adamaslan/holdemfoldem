@@ -56,7 +56,7 @@ The 4-stage technical analysis core that transforms raw OHLCV price data into a 
 
 Before verdict logic runs, a suppression pipeline (inside `get_trade_plan`) evaluates whether a tradeable plan can be emitted, attaching coded reasons when it cannot. Each suppression has a machine code and a human-readable label. Suppression governs **trade-plan emission only** — it does *not* remove signals from `avg_score` or the `bullish`/`bearish` counts, which are computed earlier in `analyze_security` over all ranked signals. The `HoldFoldVerdict` includes a `suppressions` field (`list[SuppressionInfo]`, each `{code, label}`) listing all active suppression codes + labels. This stage is not configurable by the caller — it runs unconditionally.
 
-The complete suppression-code set is the `SUPPRESSION_LABELS` dict in `backend/main.py:131-141` (9 codes). The codes originate upstream: `_build_verdict` reads `trade["all_suppressions"]` from the `get_trade_plan` result and maps each code through `SUPPRESSION_LABELS` (an unknown code falls back to using the raw code as its own label).
+The complete suppression-code set is the `SUPPRESSION_LABELS` dict in `backend/main.py:131-141` (9 codes). The codes originate upstream: `_build_verdict` reads `trade["all_suppressions"]` from the `get_trade_plan` result and maps each code through `SUPPRESSION_LABELS` (an unknown code falls back to using the raw code as its own label). Upstream codes arrive as `SuppressionCode` Enum members, so they are unwrapped to their bare value before the lookup (`str()` would give `SuppressionCode.NO_TREND` and silently miss the label); see [[entity-verdict-core]].
 
 | Code | Label / trigger |
 |------|-----------------|
