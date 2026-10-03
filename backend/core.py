@@ -17,6 +17,7 @@ import os
 import re
 import sys
 import uuid
+from enum import Enum
 from pathlib import Path
 from typing import Literal
 
@@ -401,6 +402,39 @@ class HoldFoldVerdict(BaseModel):
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+def _suppression_code(raw: object) -> str:
+    """Normalize a suppression entry to its bare code (e.g. ``NO_TREND``).
+
+    Upstream ``SuppressionCode`` is a ``str`` Enum; ``str()`` of a member gives
+    ``"SuppressionCode.NO_TREND"`` on Python 3.11+, so unwrap the value instead.
+    """
+    code = raw.get("code", raw) if isinstance(raw, dict) else getattr(raw, "code", raw)
+    if isinstance(code, Enum):
+        code = code.value
+    return str(code).removeprefix("SuppressionCode.")
+
+
+def _positive_finite(value: object) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value) if math.isfinite(value) and value > 0 else None
+
+
+def _resolve_atr(indicators: dict, trade: dict) -> float | None:
+    """ATR from analyze_security's indicators, else the trade plan's risk metrics.
+
+    analyze_security() never populates ``indicators["atr"]`` (it emits only
+    rsi/macd/adx/volume), while get_trade_plan() always carries
+    ``risk_assessment.metrics.atr``. Zero/NaN (its error-result placeholder)
+    counts as missing.
+    """
+    atr = _positive_finite(indicators.get("atr"))
+    if atr is not None:
+        return atr
+    metrics = (trade.get("risk_assessment") or {}).get("metrics") or {}
+    return _positive_finite(metrics.get("atr"))
+
+
 def _volatility_regime(atr: float | None, price: float) -> str:
     if not atr or price == 0:
         return "unknown"
@@ -620,16 +654,56 @@ def _position_eval(
     return round(pnl_pct, 2), round(pnl_dollar, 4), vs_stop, vs_target
 
 
+FIB_DEDUP_REL_TOLERANCE = 0.0005  # same ratio within 0.05% of price is the same level
+FIB_DEDUP_ABS_TOLERANCE = 0.005   # ...or within half a cent
+FIB_MAX_LEVELS = 8
+_PREFERRED_FIB_KIND = "RETRACE"
+
+
+def _is_preferred_fib_kind(level_type: str) -> bool:
+    return level_type.upper().startswith(_PREFERRED_FIB_KIND)
+
+
+def _dedupe_fib_levels(levels_raw: list[dict]) -> list[dict]:
+    """Collapse raw levels that share a ratio name and (near-)identical price.
+
+    The upstream fibonacci registry emits some ratios under two kinds (88.6% is
+    both RETRACE and HARMONIC). The first occurrence keeps its position; if a
+    later duplicate is a RETRACE and the kept one is not, RETRACE wins.
+    """
+    kept: list[dict] = []
+    for lv in levels_raw:
+        lv_price = lv.get("price") or 0
+        lv_name = lv.get("name", lv.get("key", ""))
+        match_idx = next(
+            (
+                i for i, other in enumerate(kept)
+                if other.get("name", other.get("key", "")) == lv_name
+                and abs((other.get("price") or 0) - lv_price)
+                <= max(FIB_DEDUP_ABS_TOLERANCE, abs(lv_price) * FIB_DEDUP_REL_TOLERANCE)
+            ),
+            None,
+        )
+        if match_idx is None:
+            kept.append(lv)
+            continue
+        if (
+            _is_preferred_fib_kind(str(lv.get("type", "")))
+            and not _is_preferred_fib_kind(str(kept[match_idx].get("type", "")))
+        ):
+            kept[match_idx] = lv
+    return kept
+
+
 def _extract_fib_levels(
     fib_data: dict, current_price: float
 ) -> tuple[list[FibLevel], list[dict], float | None, float | None]:
     levels_raw = fib_data.get("levels", [])
     zones_raw  = fib_data.get("confluenceZones", [])
     levels: list[FibLevel] = []
-    for lv in levels_raw[:8]:
+    priced_levels = [lv for lv in levels_raw if lv.get("price")]
+    for lv in _dedupe_fib_levels(priced_levels)[:FIB_MAX_LEVELS]:
         lv_price = lv.get("price", 0)
-        if not lv_price:
-            continue
         dist_pct = ((lv_price - current_price) / current_price) * 100
         levels.append(FibLevel(
             name=lv.get("name", lv.get("key", "")),
@@ -874,7 +948,7 @@ def _build_verdict(
     rsi      = indicators.get("rsi")
     macd_val = indicators.get("macd")
     adx      = indicators.get("adx")
-    atr      = indicators.get("atr")
+    atr      = _resolve_atr(indicators, trade)
     atr_pct  = ((atr / price) * 100) if atr and price else None
 
     signals_raw: list[dict] = analysis.get("signals", [])
@@ -903,10 +977,7 @@ def _build_verdict(
     stop_pct   = round(abs((entry - stop)   / entry) * 100, 2) if entry and stop   else None
     upside_pct = round(abs((target - entry) / entry) * 100, 2) if entry and target else None
 
-    suppression_codes = [
-        str(s.get("code", s)) if isinstance(s, dict) else str(s)
-        for s in trade.get("all_suppressions", [])
-    ]
+    suppression_codes = [_suppression_code(s) for s in trade.get("all_suppressions", [])]
     suppressions = [
         SuppressionInfo(code=c, label=SUPPRESSION_LABELS.get(c, c))
         for c in suppression_codes
