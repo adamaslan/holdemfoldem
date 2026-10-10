@@ -20,7 +20,7 @@ import uuid
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 # Valid ticker: 1-12 alphanumeric chars, optional dots/hyphens (e.g. BRK.B, BTC-USD)
 _SYMBOL_RE = re.compile(r"^[A-Z0-9][A-Z0-9.\-]{0,11}$")
@@ -227,6 +227,47 @@ class PositionLot(BaseModel):
         return v
 
 
+class VerdictParams(BaseModel):
+    """Every verdict threshold, overridable per request.
+
+    Defaults reproduce the shipped behavior exactly. Callers (the signals-app
+    chain runner, the CLI, a UI slider) send only the fields they want to
+    change; ``GET /api/params`` lists the defaults and bounds. The values
+    actually used are echoed back on the verdict as ``params_used``.
+    """
+
+    model_config = {"frozen": True, "extra": "forbid"}
+
+    hold_threshold:        float = Field(default=HOLD_THRESHOLD, ge=0, le=100,
+                                         description="avg_score needed for a high-conviction verdict")
+    neutral_threshold:     float = Field(default=NEUTRAL_THRESHOLD, ge=0, le=100,
+                                         description="avg_score needed for a plain HOLD/FOLD")
+    max_confidence:        float = Field(default=MAX_CONF, ge=1, le=100)
+    conviction_boost:      float = Field(default=1.05, ge=1.0, le=1.5,
+                                         description="confidence multiplier above hold_threshold")
+    weak_signal_discount:  float = Field(default=0.85, ge=0.1, le=1.0,
+                                         description="confidence multiplier below neutral_threshold")
+    min_risk_reward:       float = Field(default=1.5, ge=0, le=10,
+                                         description="R:R below this raises risk_level")
+    atr_pct_high:          float = Field(default=3.0, ge=0, le=50,
+                                         description="ATR % above this raises risk_level")
+    atr_pct_extreme:       float = Field(default=5.0, ge=0, le=50,
+                                         description="ATR % above this raises risk_level again")
+    vol_low_pct:           float = Field(default=1.0, ge=0, le=50)
+    vol_normal_pct:        float = Field(default=2.5, ge=0, le=50)
+    vol_elevated_pct:      float = Field(default=5.0, ge=0, le=50)
+
+    @model_validator(mode="after")
+    def _ordered_bands(self) -> "VerdictParams":
+        if self.hold_threshold < self.neutral_threshold:
+            raise ValueError("hold_threshold must be >= neutral_threshold")
+        if self.atr_pct_extreme < self.atr_pct_high:
+            raise ValueError("atr_pct_extreme must be >= atr_pct_high")
+        if not self.vol_low_pct <= self.vol_normal_pct <= self.vol_elevated_pct:
+            raise ValueError("vol bands must satisfy low <= normal <= elevated")
+        return self
+
+
 class AnalyzeRequest(BaseModel):
     symbol:           str
     period:           str   = "3mo"
@@ -250,6 +291,8 @@ class AnalyzeRequest(BaseModel):
     cost_basis_method:    Literal["fifo", "lifo", "average", "specific"] = "average"
     include_dividends:    bool = False
     adjust_for_splits:    bool = True
+    # Verdict threshold overrides; omitted fields keep the shipped defaults
+    params:               VerdictParams = Field(default_factory=VerdictParams)
 
 
 class SuppressionInfo(BaseModel):
@@ -397,27 +440,32 @@ class HoldFoldVerdict(BaseModel):
     warnings:            list[str] = Field(default_factory=list)
     request_id:          str | None = None     # echoed in X-Request-Id header
     disclaimer_version:  str = DISCLAIMER_VERSION
+    params_used:         dict = Field(default_factory=dict)  # VerdictParams in force
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _volatility_regime(atr: float | None, price: float) -> str:
+def _volatility_regime(atr: float | None, price: float, p: VerdictParams | None = None) -> str:
+    p = p or VerdictParams()
     if not atr or price == 0:
         return "unknown"
     pct = (atr / price) * 100
-    if pct < 1.0:   return "low"
-    if pct < 2.5:   return "normal"
-    if pct < 5.0:   return "elevated"
+    if pct < p.vol_low_pct:      return "low"
+    if pct < p.vol_normal_pct:   return "normal"
+    if pct < p.vol_elevated_pct: return "elevated"
     return "extreme"
 
 
-def _risk_level(avg_score: float, rr: float | None, atr_pct: float | None) -> str:
+def _risk_level(
+    avg_score: float, rr: float | None, atr_pct: float | None, p: VerdictParams | None = None,
+) -> str:
+    p = p or VerdictParams()
     score = 0
     if avg_score < 50:            score += 2
     elif avg_score < 60:          score += 1
-    if rr is not None and rr < 1.5:      score += 1
-    if atr_pct is not None and atr_pct > 3.0: score += 1
-    if atr_pct is not None and atr_pct > 5.0: score += 1
+    if rr is not None and rr < p.min_risk_reward:       score += 1
+    if atr_pct is not None and atr_pct > p.atr_pct_high:    score += 1
+    if atr_pct is not None and atr_pct > p.atr_pct_extreme: score += 1
     return ["low", "medium", "high", "extreme"][min(score, 3)]
 
 
@@ -919,34 +967,35 @@ def _build_verdict(
 
     # Options strategy overrides verdict logic
     strat = req.options_strategy
+    vp = req.params
     if strat in NEUTRAL_STRATEGIES or strat in VOLATILITY_STRATEGIES:
-        if avg_score >= HOLD_THRESHOLD:
-            verdict_str = "HOLD EM"; confidence = min(avg_score * 1.05, MAX_CONF)
-        elif avg_score >= NEUTRAL_THRESHOLD:
+        if avg_score >= vp.hold_threshold:
+            verdict_str = "HOLD EM"; confidence = min(avg_score * vp.conviction_boost, vp.max_confidence)
+        elif avg_score >= vp.neutral_threshold:
             verdict_str = "HOLD EM"; confidence = avg_score
         else:
             verdict_str = "NEUTRAL"; confidence = 50.0
         effective_bias = _strategy_verdict_bias(strat)
-    elif has_trades and effective_bias == "bullish" and avg_score >= HOLD_THRESHOLD:
-        verdict_str = "HOLD EM"; confidence = min(avg_score * 1.05, MAX_CONF)
-    elif has_trades and effective_bias == "bearish" and avg_score >= HOLD_THRESHOLD:
-        verdict_str = "FOLD EM"; confidence = min(avg_score * 1.05, MAX_CONF)
-    elif bullish > bearish and avg_score >= NEUTRAL_THRESHOLD:
+    elif has_trades and effective_bias == "bullish" and avg_score >= vp.hold_threshold:
+        verdict_str = "HOLD EM"; confidence = min(avg_score * vp.conviction_boost, vp.max_confidence)
+    elif has_trades and effective_bias == "bearish" and avg_score >= vp.hold_threshold:
+        verdict_str = "FOLD EM"; confidence = min(avg_score * vp.conviction_boost, vp.max_confidence)
+    elif bullish > bearish and avg_score >= vp.neutral_threshold:
         verdict_str = "HOLD EM"; confidence = avg_score
-    elif bearish > bullish and avg_score >= NEUTRAL_THRESHOLD:
+    elif bearish > bullish and avg_score >= vp.neutral_threshold:
         verdict_str = "FOLD EM"; confidence = avg_score
     elif bullish > bearish:
-        verdict_str = "HOLD EM"; confidence = avg_score * 0.85
+        verdict_str = "HOLD EM"; confidence = avg_score * vp.weak_signal_discount
     elif bearish > bullish:
-        verdict_str = "FOLD EM"; confidence = avg_score * 0.85
+        verdict_str = "FOLD EM"; confidence = avg_score * vp.weak_signal_discount
     else:
         verdict_str = "NEUTRAL"; confidence = 50.0
 
     if strat in BEARISH_STRATEGIES and verdict_str == "HOLD EM":
         verdict_str = "FOLD EM"
 
-    vol_regime = _volatility_regime(atr, price)
-    risk_lvl   = _risk_level(avg_score, rr, atr_pct)
+    vol_regime = _volatility_regime(atr, price, vp)
+    risk_lvl   = _risk_level(avg_score, rr, atr_pct, vp)
 
     # ── Multi-lot P&L pipeline ────────────────────────────────────────────────
     as_of_date = _dt.datetime.now(_dt.timezone.utc).date()
@@ -1067,8 +1116,8 @@ def _build_verdict(
         parts.append(f"Nearest Fib resistance ${nearest_resistance:.2f}.")
 
     # ── Verdict invariant clamps ───────────────────────────────────────────────
-    # Confidence: hard clamp to [0, MAX_CONF]
-    confidence = max(0.0, min(confidence, MAX_CONF))
+    # Confidence: hard clamp to [0, max_confidence]
+    confidence = max(0.0, min(confidence, vp.max_confidence))
 
     # Trade plan sanity: entry < target (long) / entry > target (short)
     build_warnings: list[str] = list(warnings or [])
@@ -1156,6 +1205,7 @@ def _build_verdict(
         degraded=degraded,
         warnings=build_warnings,
         request_id=request_id,
+        params_used=vp.model_dump(),
         disclaimer_version=DISCLAIMER_VERSION,
     )
 
