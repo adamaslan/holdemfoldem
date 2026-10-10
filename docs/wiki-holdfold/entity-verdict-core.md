@@ -29,6 +29,8 @@ Errors surface as plain Python exceptions instead of `HTTPException`, so callers
 
 `check_backend_health()` replaces the old inline `/health` handler body — same `{"status", "version", "firestore"}` shape.
 
+**Per-request thresholds — `VerdictParams` (2026-10-10).** Every number `_build_verdict` branches on is now a field of a frozen, `extra="forbid"` model carried as `AnalyzeRequest.params`: `hold_threshold` (default `HOLD_THRESHOLD`, 60), `neutral_threshold` (55), `max_confidence` (95), `conviction_boost` (1.05), `weak_signal_discount` (0.85), `min_risk_reward` (1.5), `atr_pct_high`/`atr_pct_extreme` (3/5), and the `vol_low/normal/elevated_pct` regime bands (1/2.5/5). `_risk_level` and `_volatility_regime` take the params too. A model validator enforces hold ≥ neutral, extreme ≥ high, low ≤ normal ≤ elevated. Defaults reproduce pre-change verdicts exactly. Params act only on the already-fetched analysis, so the Firestore cache key (symbol + period) is unaffected. Until ATR is actually populated (it was `null` in production as of 2026-10-03), the ATR and volatility bands have nothing to act on.
+
 ## Where used
 
 - `backend/main.py` — FastAPI HTTP adapter (`POST /api/analyze`, `GET /health`)
@@ -37,7 +39,7 @@ Errors surface as plain Python exceptions instead of `HTTPException`, so callers
 
 ## Known failures
 
-- `core.py` (like the old `main.py`) calls `os.chdir()` at import time to point the process CWD at the sibling `mcp-finance1` repo. Any process that imports it has its working directory changed. The CLI's in-process path must resolve user-supplied paths to absolute *before* importing `core`. If neither the sibling checkout nor `/app` exists, `core.py` now raises `ImportError` explicitly (rather than letting `os.chdir()` raise a bare `FileNotFoundError`), so callers that catch `ImportError` around `import core` — e.g. `cli/app.py`'s HTTP-only fallback — see the failure mode they're built to handle.
+- `core.py` (like the old `main.py`) calls `os.chdir()` at import time to point the process CWD at the sibling `mcp-finance1` repo. Any process that imports it has its working directory changed — including sibling modules in `backend/` imported *after* it, which then stop resolving by name (hit live on 2026-10-10 by `signals_client`; tests didn't catch it because pytest puts the rootdir on `sys.path`). The CLI's in-process path must resolve user-supplied paths to absolute *before* importing `core`. If neither the sibling checkout nor `/app` exists, `core.py` now raises `ImportError` explicitly (rather than letting `os.chdir()` raise a bare `FileNotFoundError`), so callers that catch `ImportError` around `import core` — e.g. `cli/app.py`'s HTTP-only fallback — see the failure mode they're built to handle.
 - The extraction was verified by re-running the full Playwright e2e suite (`frontend/e2e/app.spec.ts`, 9 tests) against the refactored backend with no changes to the HTTP contract — all passed.
 - **Packaging gap (found in review, fixed in the same PR):** the Cloud Run deploy (`deploy-backend.sh` + `backend/cloud-run/Dockerfile`) originally copied only `backend/main.py` into the build context/image, not `backend/core.py`. Since `main.py` now does `from core import ...`, this would have failed at Cloud Run startup with `ModuleNotFoundError: core`. Fixed by copying `core.py` alongside `main.py` in both the deploy script and the Dockerfile `COPY` step.
 
