@@ -92,3 +92,80 @@ def test_thesis_attaches_dip_study(client: TestClient, monkeypatch: pytest.Monke
 
 def test_signals_error_type_is_runtime_error() -> None:
     assert issubclass(SignalsUnavailableError, RuntimeError)
+
+
+def test_thesis_swing_is_opt_in_and_passes_params(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[dict] = []
+
+    async def fake_dip(symbol, *, period, params):
+        return {"symbol": symbol}
+
+    async def fake_swing(symbol, *, period, params):
+        calls.append({"symbol": symbol, "period": period, "params": params})
+        return {"best": [{"entry": "dip(5,12)", "avg_pct": 5.2}]}
+
+    monkeypatch.setattr(main, "fetch_dip_study", fake_dip)
+    monkeypatch.setattr(main, "fetch_swing_grid", fake_swing)
+
+    off = client.post("/api/thesis", json={"analyze": {"symbol": "TEST"}}).json()
+    assert off["swing"] is None and calls == []
+
+    on = client.post("/api/thesis", json={
+        "analyze": {"symbol": "TEST"}, "swing_params": {"top": 3}, "swing_period": "3y",
+    }).json()
+    assert on["swing"]["best"][0]["entry"] == "dip(5,12)"
+    assert calls == [{"symbol": "TEST", "period": "3y", "params": {"top": 3}}]
+
+
+def test_thesis_swing_failure_is_a_warning(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def fake_dip(symbol, *, period, params):
+        return {"symbol": symbol}
+
+    async def fake_swing(symbol, *, period, params):
+        raise SignalsUnavailableError("no robust combo")
+
+    monkeypatch.setattr(main, "fetch_dip_study", fake_dip)
+    monkeypatch.setattr(main, "fetch_swing_grid", fake_swing)
+    body = client.post("/api/thesis", json={"analyze": {"symbol": "TEST"}, "swing_params": {}}).json()
+    assert body["swing"] is None
+    assert body["warnings"] == ["swing_unavailable: no robust combo"]
+
+
+async def test_fetch_swing_grid_parses_the_chain_response(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Shape copied from a live POST /v1/chains/run: ``rows`` is a list of row dicts."""
+    import signals_client
+
+    async def fake_post(path, body):
+        assert path == "/v1/chains/run"
+        assert body["steps"][1] == {"op": "swing_grid", "params": {"top": 2, "period": "5y"}}
+        return {
+            "symbols": ["SNDK"],
+            "rows": [{"symbol": "SNDK", "swing": {"best": [{"entry": "dip(5,5)"}]}}],
+            "steps": [{"op": "symbols", "dropped": {}}, {"op": "swing_grid", "dropped": {}}],
+        }
+
+    monkeypatch.setattr(signals_client, "_post_signals", fake_post)
+    swing = await signals_client.fetch_swing_grid("sndk", params={"top": 2})
+    assert swing["best"][0]["entry"] == "dip(5,5)"
+
+
+async def test_fetch_swing_grid_reports_why_symbol_was_dropped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import signals_client
+
+    async def fake_post(path, body):
+        return {
+            "symbols": [],
+            "rows": [],
+            "steps": [{"op": "symbols", "dropped": {}},
+                      {"op": "swing_grid", "dropped": {"SNDK": "no robust combo"}}],
+        }
+
+    monkeypatch.setattr(signals_client, "_post_signals", fake_post)
+    with pytest.raises(SignalsUnavailableError, match="no robust combo"):
+        await signals_client.fetch_swing_grid("SNDK")

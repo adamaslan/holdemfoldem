@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field
 
 # Must import before core: core.py chdirs into mcp-finance1 at import time, after
 # which sibling modules in this directory are no longer importable by name.
-from signals_client import SignalsUnavailableError, fetch_dip_study  # noqa: I001
+from signals_client import SignalsUnavailableError, fetch_dip_study, fetch_swing_grid  # noqa: I001
 from core import (
     AnalysisUnavailableError,
     AnalyzeRequest,
@@ -65,6 +65,11 @@ class ThesisRequest(BaseModel):
     analyze: AnalyzeRequest
     dip_period: str = "5y"
     dip_params: dict[str, Any] = Field(default_factory=dict)
+    swing_params: dict[str, Any] | None = Field(
+        default=None,
+        description="Set (even to {}) to also run signals-app's swing_grid op; omitted = skipped.",
+    )
+    swing_period: str = "5y"
 
 
 @app.post("/api/thesis")
@@ -93,7 +98,21 @@ async def thesis(req: ThesisRequest, response: Response) -> dict[str, Any]:
     except SignalsUnavailableError as e:
         logger.warning("request_id=%s dip study unavailable: %s", request_id, e)
         warnings.append(f"dip_study_unavailable: {e}")
-    return {"verdict": verdict.model_dump(), "dip_study": dip_study, "warnings": warnings}
+    swing = None
+    if req.swing_params is not None:
+        try:
+            swing = await fetch_swing_grid(
+                verdict.symbol, period=req.swing_period, params=req.swing_params
+            )
+        except SignalsUnavailableError as e:
+            logger.warning("request_id=%s swing grid unavailable: %s", request_id, e)
+            warnings.append(f"swing_unavailable: {e}")
+    return {
+        "verdict": verdict.model_dump(),
+        "dip_study": dip_study,
+        "swing": swing,
+        "warnings": warnings,
+    }
 
 
 @app.get("/health")
