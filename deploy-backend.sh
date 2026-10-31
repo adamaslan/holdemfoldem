@@ -19,6 +19,7 @@ echo ""
 #   cloud-run/environment.yml  →  from holdemfoldemapp/backend/cloud-run/
 #   cloud-run/main.py          →  from holdemfoldemapp/backend/main.py
 #   cloud-run/core.py          →  from holdemfoldemapp/backend/core.py
+#   cloud-run/signals_client.py →  from holdemfoldemapp/backend/signals_client.py
 #   src/                       →  from mcp-finance1/src/
 #   fibonacci/                 →  from mcp-finance1/fibonacci/
 #
@@ -38,6 +39,7 @@ mkdir -p "$BUILD_CTX/cloud-run"
 cp "$SCRIPT_DIR/backend/cloud-run/Dockerfile"       "$BUILD_CTX/Dockerfile"
 cp "$SCRIPT_DIR/backend/main.py"                    "$BUILD_CTX/cloud-run/main.py"
 cp "$SCRIPT_DIR/backend/core.py"                    "$BUILD_CTX/cloud-run/core.py"
+cp "$SCRIPT_DIR/backend/signals_client.py"          "$BUILD_CTX/cloud-run/signals_client.py"
 cp "$SCRIPT_DIR/backend/cloud-run/environment.yml"  "$BUILD_CTX/cloud-run/environment.yml"
 
 echo "📦 Build context prepared at $BUILD_CTX"

@@ -16,6 +16,7 @@ WORKDIR /app
 # FastAPI entry point (cloud-run specific) + the verdict engine it imports
 COPY --chown=$MAMBA_USER:$MAMBA_USER cloud-run/main.py ./main.py
 COPY --chown=$MAMBA_USER:$MAMBA_USER cloud-run/core.py ./core.py
+COPY --chown=$MAMBA_USER:$MAMBA_USER cloud-run/signals_client.py ./signals_client.py
 
 # MCP source (canonical package used by main.py)
 COPY --chown=$MAMBA_USER:$MAMBA_USER src ./src
