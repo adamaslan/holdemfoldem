@@ -51,7 +51,15 @@ async def fetch_dip_study(
         raise SignalsUnavailableError(f"signals-app request failed: {exc}") from exc
     if resp.status_code != httpx.codes.OK:
         raise SignalsUnavailableError(f"signals-app returned {resp.status_code}: {resp.text[:200]}")
-    payload = resp.json()
+    try:
+        payload = resp.json()
+    except ValueError as exc:
+        raise SignalsUnavailableError("signals-app returned invalid JSON") from exc
+    if not isinstance(payload, dict):
+        raise SignalsUnavailableError("signals-app returned a non-object payload")
     if payload.get("failed"):
         raise SignalsUnavailableError(payload["failed"][0].get("error", "dip study failed"))
-    return payload["ok"][0]
+    ok = payload.get("ok")
+    if not ok or not isinstance(ok, list):
+        raise SignalsUnavailableError("signals-app returned no usable dip study")
+    return ok[0]
