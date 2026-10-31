@@ -29,24 +29,17 @@ def signals_base_url() -> str | None:
     return raw.rstrip("/") or None
 
 
-async def fetch_dip_study(
-    symbol: str, *, period: str = "5y", params: dict[str, Any] | None = None
-) -> dict[str, Any]:
-    """Run signals-app's dip study for one symbol.
-
-    Raises:
-        SignalsUnavailableError: URL unset, transport failure, or non-200.
-    """
+async def _post_signals(path: str, body: dict[str, Any]) -> dict[str, Any]:
+    """POST ``body`` to signals-app ``path`` and return the JSON payload."""
     base = signals_base_url()
     if base is None:
         raise SignalsUnavailableError(f"{SIGNALS_API_URL_ENV} is not set")
     headers = {}
     if key := os.getenv(SIGNALS_API_KEY_ENV):
         headers["X-API-Key"] = key
-    body = {"symbols": [symbol], "period": period, "params": params or {}}
     try:
         async with httpx.AsyncClient(timeout=SIGNALS_TIMEOUT_SECONDS) as client:
-            resp = await client.post(f"{base}/v1/studies/dip", json=body, headers=headers)
+            resp = await client.post(f"{base}{path}", json=body, headers=headers)
     except httpx.HTTPError as exc:
         raise SignalsUnavailableError(f"signals-app request failed: {exc}") from exc
     if resp.status_code != httpx.codes.OK:
@@ -57,6 +50,56 @@ async def fetch_dip_study(
         raise SignalsUnavailableError("signals-app returned invalid JSON") from exc
     if not isinstance(payload, dict):
         raise SignalsUnavailableError("signals-app returned a non-object payload")
+    return payload
+
+
+async def fetch_swing_grid(
+    symbol: str, *, period: str = "5y", params: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """Run signals-app's ``swing_grid`` chain op for one symbol.
+
+    Returns the symbol's ``swing`` row (best entry x exit combos), or raises
+    when signals-app dropped the symbol (no data, no robust combo).
+
+    Raises:
+        SignalsUnavailableError: URL unset, transport failure, non-200, or dropped symbol.
+    """
+    steps = [
+        {"op": "symbols", "params": {"symbols": [symbol]}},
+        {"op": "swing_grid", "params": {**(params or {}), "period": period}},
+    ]
+    payload = await _post_signals("/v1/chains/run", {"steps": steps})
+    wanted = symbol.upper()
+    rows = payload.get("rows")
+    if rows is not None and not isinstance(rows, list):
+        raise SignalsUnavailableError("swing grid returned malformed rows")
+    for row in rows or []:
+        if not isinstance(row, dict):
+            raise SignalsUnavailableError("swing grid returned malformed rows")
+        if row.get("symbol") == wanted and "swing" in row:
+            swing = row["swing"]
+            if not isinstance(swing, dict):
+                raise SignalsUnavailableError("swing grid returned a malformed swing payload")
+            return swing
+    steps_out = payload.get("steps")
+    last = steps_out[-1] if isinstance(steps_out, list) and steps_out else {}
+    dropped = last.get("dropped", {}) if isinstance(last, dict) else {}
+    if not isinstance(dropped, dict):
+        dropped = {}
+    raise SignalsUnavailableError(dropped.get(wanted, "swing grid returned no result"))
+
+
+async def fetch_dip_study(
+    symbol: str, *, period: str = "5y", params: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """Run signals-app's dip study for one symbol.
+
+    Raises:
+        SignalsUnavailableError: URL unset, transport failure, or non-200.
+    """
+    payload = await _post_signals(
+        "/v1/studies/dip", {"symbols": [symbol], "period": period, "params": params or {}}
+    )
     if payload.get("failed"):
         raise SignalsUnavailableError(payload["failed"][0].get("error", "dip study failed"))
     ok = payload.get("ok")
