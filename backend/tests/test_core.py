@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import pytest
 
-from core import PositionLot, PositionPnL, _compute_lots_pnl, _per_share_pnl
+import core
+from core import PositionLot, PositionPnL, _compute_lots_pnl, _per_share_pnl, _cache_key_for, _cached_or_fetch
+from core import PositionLot, PositionPnL, _compute_lots_pnl, _extract_fib_levels, _per_share_pnl
 
 
 class TestFractionalQtyPnl:
@@ -75,3 +77,110 @@ class TestMixedSideLots:
             split_adjustments=0, dividends_received=None,
         )
         assert pnl.unrealized_dollar > 0
+
+
+class _FakeFirestoreCache:
+    """In-memory stand-in for MCPFirestoreCache, keyed exactly like the real
+    one: (tool_name, cache_key) -> {"result": ..., "updated_at": ...}.
+    """
+
+    def __init__(self):
+        self.docs: dict[tuple[str, str], dict] = {}
+        self.reads: list[tuple[str, str]] = []
+        self.writes: list[tuple[str, str]] = []
+
+    def read_tool_result(self, tool_name: str, cache_key: str):
+        self.reads.append((tool_name, cache_key))
+        return self.docs.get((tool_name, cache_key))
+
+    def write_tool_result(self, tool_name: str, cache_key: str, result):
+        self.writes.append((tool_name, cache_key))
+        self.docs[(tool_name, cache_key)] = {
+            "result": result,
+            "updated_at": __import__("datetime").datetime.now(__import__("datetime").timezone.utc),
+        }
+
+
+class TestCacheKeyIncludesPeriod:
+    """Regression for the multi-timeframe cache bug (FIBONACCI.md §12.1, PO1):
+    `_cached_or_fetch`'s Firestore key used to be just `symbol`, so switching
+    the portal's Period dropdown inside the 1-hour TTL returned the OLD
+    period's ladder mislabeled as the new one. `analyze_security`,
+    `get_trade_plan` and `analyze_fibonacci` are all fetched with a cache key
+    built by `_cache_key_for(symbol, period)`, so two periods for one symbol
+    must land in two distinct Firestore documents.
+    """
+
+    def test_cache_key_differs_by_period(self):
+        assert _cache_key_for("AAPL", "1d") != _cache_key_for("AAPL", "1y")
+        assert _cache_key_for("AAPL", "1d") == _cache_key_for("AAPL", "1d")
+
+    def test_cache_key_omits_none_parts(self):
+        # options_risk_analysis has no period param — key stays symbol-only.
+        assert _cache_key_for("AAPL") == "AAPL"
+        assert _cache_key_for("AAPL", None) == "AAPL"
+
+    @pytest.mark.asyncio
+    async def test_two_periods_produce_two_cache_entries(self, monkeypatch):
+        fake_fs = _FakeFirestoreCache()
+        monkeypatch.setattr(core, "_get_firestore", lambda: fake_fs)
+
+        fetch_calls: list[str] = []
+
+        async def fetch_for(period: str):
+            fetch_calls.append(period)
+            return {"period": period, "levels": [f"level-for-{period}"]}
+
+        key_1d = _cache_key_for("AAPL", "1d")
+        key_1y = _cache_key_for("AAPL", "1y")
+
+        result_1d = await _cached_or_fetch(
+            "analyze_fibonacci", key_1d, lambda: fetch_for("1d")
+        )
+        result_1y = await _cached_or_fetch(
+            "analyze_fibonacci", key_1y, lambda: fetch_for("1y")
+        )
+
+        # Two distinct Firestore documents, not one overwritten by the other.
+        assert len(fake_fs.docs) == 2
+        assert ("analyze_fibonacci", key_1d) in fake_fs.docs
+        assert ("analyze_fibonacci", key_1y) in fake_fs.docs
+        assert result_1d["period"] == "1d"
+        assert result_1y["period"] == "1y"
+        assert fetch_calls == ["1d", "1y"]
+
+        # A second request for the *same* period hits the fresh cache and
+        # does not re-fetch — proves the fix didn't also break cache reuse.
+        result_1d_again = await _cached_or_fetch(
+            "analyze_fibonacci", key_1d, lambda: fetch_for("1d")
+        )
+        assert result_1d_again["period"] == "1d"
+        assert fetch_calls == ["1d", "1y"]  # no third fetch call
+class TestExtractFibLevels:
+    PRICE = 150.0
+
+    @staticmethod
+    def _lv(name: str, price: float) -> dict:
+        return {"name": name, "price": price, "strength": "s", "type": "retracement"}
+
+    def test_returns_nearest_levels_not_first_in_registry_order(self):
+        far = [self._lv(f"far{i}", 300.0 + i) for i in range(10)]
+        near = [self._lv("nearA", 149.0), self._lv("nearB", 152.0)]
+        levels, _, _, _ = _extract_fib_levels({"levels": far + near}, self.PRICE)
+        names = [lv.name for lv in levels]
+        assert len(levels) == 8
+        assert "nearA" in names and "nearB" in names
+
+    def test_nearest_support_and_resistance_use_every_level(self):
+        # Eight levels crowd just above price, so the only level below price
+        # is outside the returned ladder but is still the nearest support.
+        crowd = [self._lv(f"up{i}", 151.0 + i) for i in range(8)]
+        below = [self._lv("below", 100.0)]
+        levels, _, support, resistance = _extract_fib_levels({"levels": crowd + below}, self.PRICE)
+        assert support == 100.0
+        assert resistance == 151.0
+        assert "below" not in [lv.name for lv in levels]
+
+    def test_skips_zero_price_and_handles_empty(self):
+        assert _extract_fib_levels({"levels": [self._lv("z", 0)]}, self.PRICE)[0] == []
+        assert _extract_fib_levels({}, self.PRICE) == ([], [], None, None)

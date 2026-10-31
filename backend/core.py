@@ -104,8 +104,28 @@ def _get_firestore() -> MCPFirestoreCache | None:
 _FIRESTORE_CACHE_TTL_SECONDS = 3600  # 1 hour — prevents stale cached schemas
 
 
+def _cache_key_for(symbol: str, *parts: str | None) -> str:
+    """Build a Firestore cache key that is unique per (symbol, extra params).
+
+    Any parameter the underlying fetch depends on (period, and later interval)
+    must be folded into the key — a key of just `symbol` returns the same
+    cached document regardless of what period/interval was requested, so
+    switching the Period dropdown within the TTL window silently serves the
+    old period's data relabeled as the new one. See
+    docs/wiki-*/incident notes for the 2026-09 finding (portal FibLadder
+    mislabeling) this fixes.
+    """
+    key_parts = [symbol] + [p for p in parts if p is not None]
+    return ":".join(key_parts)
+
+
 async def _cached_or_fetch(tool_name: str, cache_key: str, fetch_fn):
-    """fetch_fn is a zero-arg callable that returns a coroutine (avoids unawaited-coroutine warnings)."""
+    """fetch_fn is a zero-arg callable that returns a coroutine (avoids unawaited-coroutine warnings).
+
+    `cache_key` must fold in every parameter the fetch result depends on
+    (symbol AND period, at minimum) — see `_cache_key_for`. A key of just the
+    symbol collides across periods within the TTL window.
+    """
     fs = _get_firestore()
     if fs:
         doc = fs.read_tool_result(tool_name, cache_key)
@@ -693,6 +713,7 @@ def _dedupe_fib_levels(levels_raw: list[dict]) -> list[dict]:
         ):
             kept[match_idx] = lv
     return kept
+MAX_FIB_LEVELS = 8
 
 
 def _extract_fib_levels(
@@ -703,17 +724,23 @@ def _extract_fib_levels(
     levels: list[FibLevel] = []
     priced_levels = [lv for lv in levels_raw if lv.get("price")]
     for lv in _dedupe_fib_levels(priced_levels)[:FIB_MAX_LEVELS]:
+    all_levels: list[FibLevel] = []
+    for lv in levels_raw:
         lv_price = lv.get("price", 0)
         dist_pct = ((lv_price - current_price) / current_price) * 100
-        levels.append(FibLevel(
+        all_levels.append(FibLevel(
             name=lv.get("name", lv.get("key", "")),
             price=round(lv_price, 4),
             distance_pct=round(dist_pct, 2),
             strength=lv.get("strength", ""),
             type=lv.get("type", ""),
         ))
-    below = [lv for lv in levels if lv.price < current_price]
-    above = [lv for lv in levels if lv.price > current_price]
+    # Registry order is not proximity order: truncating first could return
+    # eight levels nowhere near price. Nearest support/resistance come from
+    # every level so they stay correct whatever the ladder shows.
+    levels = sorted(all_levels, key=lambda lv: abs(lv.distance_pct))[:MAX_FIB_LEVELS]
+    below = [lv for lv in all_levels if lv.price < current_price]
+    above = [lv for lv in all_levels if lv.price > current_price]
     nearest_support    = max((lv.price for lv in below), default=None)
     nearest_resistance = min((lv.price for lv in above), default=None)
     top_zones = [
@@ -1301,10 +1328,11 @@ async def compute_verdict(req: AnalyzeRequest, request_id: str | None = None) ->
     degraded = False
 
     try:
+        cache_key = _cache_key_for(symbol, period)
         analysis_raw, trade_raw, fib_raw = await asyncio.gather(
-            _cached_or_fetch("analyze_security", symbol, lambda: analyze_security(symbol, period=period)),
-            _cached_or_fetch("get_trade_plan",   symbol, lambda: get_trade_plan(symbol, period=period)),
-            _cached_or_fetch("analyze_fibonacci", symbol, lambda: analyze_fibonacci(symbol, period=period)),
+            _cached_or_fetch("analyze_security", cache_key, lambda: analyze_security(symbol, period=period)),
+            _cached_or_fetch("get_trade_plan",   cache_key, lambda: get_trade_plan(symbol, period=period)),
+            _cached_or_fetch("analyze_fibonacci", cache_key, lambda: analyze_fibonacci(symbol, period=period)),
         )
         cached = bool(analysis_raw.get("cached", False))
 
