@@ -19,12 +19,12 @@ Four routes:
 |-------|--------|---------|
 | `/api/analyze` | POST | Run (or cache-hit) the full signal pipeline; return `HoldFoldVerdict` |
 | `/api/params` | GET | Verdict-threshold defaults and bounds (`VerdictParams`), so a caller can build an override |
-| `/api/thesis` | POST | `{analyze, dip_period, dip_params}` → the verdict plus signals-app's dip-timing study for the same ticker |
+| `/api/thesis` | POST | `{analyze, dip_period, dip_params, swing_params?, swing_period}` → the verdict plus signals-app's dip-timing study and, when `swing_params` is sent, its swing grid (`swing`) for the same ticker |
 | `/health` | GET | Returns `{"status": "ok"}` for Cloud Run health probes |
 
 **Thresholds are request inputs (2026-10-10).** `AnalyzeRequest.params` takes any subset of `VerdictParams` (hold/neutral bars, confidence multipliers, R:R floor, ATR% risk bands, volatility-regime bands); omitted fields keep the shipped defaults, unknown fields or out-of-order bands are a 422, and the values used come back as `params_used`. See [[entity-verdict-core]].
 
-**Cross-app link to signals-app.** `/api/thesis` calls signals-app's `/v1/studies/dip` through `backend/signals_client.py`, configured by `SIGNALS_API_URL` (+ optional `SIGNALS_API_KEY`). The dip study is best-effort: when signals-app is unset or down the verdict still returns, `dip_study` is null and `warnings` names the reason. The reverse direction also exists — signals-app's `/v1/chains/run` has a `holdem` step that calls `/api/analyze` with threshold overrides (signals-app side, `HOLDEM_API_URL`). `signals_client.py` must be imported in `main.py` *before* `core`, because `core` chdirs at import time (see Known failures in [[entity-verdict-core]]); the deploy ships it beside `main.py`/`core.py`, and `httpx` was added to the Cloud Run environment for it.
+**Cross-app link to signals-app.** `/api/thesis` calls signals-app's `/v1/studies/dip` through `backend/signals_client.py`, configured by `SIGNALS_API_URL` (+ optional `SIGNALS_API_KEY`). The swing grid is opt-in (`swing_params` present, even `{}`) and calls signals-app's `/v1/chains/run` with a `swing_grid` step; its failures, like the dip study's, become `warnings`. The dip study is best-effort: when signals-app is unset or down the verdict still returns, `dip_study` is null and `warnings` names the reason. The reverse direction also exists — signals-app's `/v1/chains/run` has a `holdem` step that calls `/api/analyze` with threshold overrides (signals-app side, `HOLDEM_API_URL`). `signals_client.py` must be imported in `main.py` *before* `core`, because `core` chdirs at import time (see Known failures in [[entity-verdict-core]]); the deploy ships it beside `main.py`/`core.py`, and `httpx` was added to the Cloud Run environment for it.
 
 **`AnalyzeRequest`** (all fields except `symbol` are optional):
 
