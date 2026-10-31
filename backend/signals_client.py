@@ -70,10 +70,22 @@ async def fetch_swing_grid(
     ]
     payload = await _post_signals("/v1/chains/run", {"steps": steps})
     wanted = symbol.upper()
-    for row in payload.get("rows", []):
+    rows = payload.get("rows")
+    if rows is not None and not isinstance(rows, list):
+        raise SignalsUnavailableError("swing grid returned malformed rows")
+    for row in rows or []:
+        if not isinstance(row, dict):
+            raise SignalsUnavailableError("swing grid returned malformed rows")
         if row.get("symbol") == wanted and "swing" in row:
-            return row["swing"]
-    dropped = (payload.get("steps") or [{}])[-1].get("dropped", {})
+            swing = row["swing"]
+            if not isinstance(swing, dict):
+                raise SignalsUnavailableError("swing grid returned a malformed swing payload")
+            return swing
+    steps_out = payload.get("steps")
+    last = steps_out[-1] if isinstance(steps_out, list) and steps_out else {}
+    dropped = last.get("dropped", {}) if isinstance(last, dict) else {}
+    if not isinstance(dropped, dict):
+        dropped = {}
     raise SignalsUnavailableError(dropped.get(wanted, "swing grid returned no result"))
 
 
