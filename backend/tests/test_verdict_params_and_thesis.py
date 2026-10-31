@@ -92,3 +92,55 @@ def test_thesis_attaches_dip_study(client: TestClient, monkeypatch: pytest.Monke
 
 def test_signals_error_type_is_runtime_error() -> None:
     assert issubclass(SignalsUnavailableError, RuntimeError)
+
+
+def _fake_async_client(*, payload=None, json_error=False, status=200):
+    class FakeResp:
+        status_code = status
+        text = "fake-body"
+
+        def json(self):
+            if json_error:
+                raise ValueError("Expecting value")
+            return payload
+
+    class FakeClient:
+        def __init__(self, **kwargs) -> None:
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args) -> bool:
+            return False
+
+        async def post(self, *args, **kwargs):
+            return FakeResp()
+
+    return FakeClient
+
+
+def test_dip_invalid_json_maps_to_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
+    import asyncio
+
+    import signals_client
+
+    monkeypatch.setenv("SIGNALS_API_URL", "http://signals.test")
+    monkeypatch.setattr(
+        signals_client.httpx, "AsyncClient", _fake_async_client(json_error=True)
+    )
+    with pytest.raises(SignalsUnavailableError):
+        asyncio.run(signals_client.fetch_dip_study("TEST"))
+
+
+def test_dip_empty_ok_list_maps_to_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
+    import asyncio
+
+    import signals_client
+
+    monkeypatch.setenv("SIGNALS_API_URL", "http://signals.test")
+    monkeypatch.setattr(
+        signals_client.httpx, "AsyncClient", _fake_async_client(payload={"ok": []})
+    )
+    with pytest.raises(SignalsUnavailableError):
+        asyncio.run(signals_client.fetch_dip_study("TEST"))
