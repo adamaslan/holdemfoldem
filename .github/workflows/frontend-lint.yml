@@ -5,6 +5,9 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   hooks-lint:
     runs-on: ubuntu-24.04
@@ -15,9 +18,9 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - name: Install eslint toolchain (not saved to lockfile)
+      - name: Install pinned eslint toolchain (not saved to lockfile)
         working-directory: frontend
-        run: npm install --no-save --no-audit --no-fund eslint@9 typescript-eslint eslint-plugin-react-hooks
+        run: npm install --no-save --no-audit --no-fund eslint@9.39.5 typescript-eslint@8.72.1 eslint-plugin-react-hooks@7.1.1
       - name: ESLint react-hooks gate
         working-directory: frontend
         run: npx eslint .
