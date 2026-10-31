@@ -676,7 +676,6 @@ def _position_eval(
 
 FIB_DEDUP_REL_TOLERANCE = 0.0005  # same ratio within 0.05% of price is the same level
 FIB_DEDUP_ABS_TOLERANCE = 0.005   # ...or within half a cent
-FIB_MAX_LEVELS = 8
 _PREFERRED_FIB_KIND = "RETRACE"
 
 
@@ -713,6 +712,8 @@ def _dedupe_fib_levels(levels_raw: list[dict]) -> list[dict]:
         ):
             kept[match_idx] = lv
     return kept
+
+
 MAX_FIB_LEVELS = 8
 
 
@@ -721,11 +722,9 @@ def _extract_fib_levels(
 ) -> tuple[list[FibLevel], list[dict], float | None, float | None]:
     levels_raw = fib_data.get("levels", [])
     zones_raw  = fib_data.get("confluenceZones", [])
-    levels: list[FibLevel] = []
-    priced_levels = [lv for lv in levels_raw if lv.get("price")]
-    for lv in _dedupe_fib_levels(priced_levels)[:FIB_MAX_LEVELS]:
     all_levels: list[FibLevel] = []
-    for lv in levels_raw:
+    priced_levels = [lv for lv in levels_raw if lv.get("price")]
+    for lv in _dedupe_fib_levels(priced_levels):
         lv_price = lv.get("price", 0)
         dist_pct = ((lv_price - current_price) / current_price) * 100
         all_levels.append(FibLevel(
@@ -736,9 +735,12 @@ def _extract_fib_levels(
             type=lv.get("type", ""),
         ))
     # Registry order is not proximity order: truncating first could return
-    # eight levels nowhere near price. Nearest support/resistance come from
-    # every level so they stay correct whatever the ladder shows.
-    levels = sorted(all_levels, key=lambda lv: abs(lv.distance_pct))[:MAX_FIB_LEVELS]
+    # eight levels nowhere near price. Select the nearest levels, then hand
+    # them back in registry order so the ladder reads swing-low to swing-high.
+    # Nearest support/resistance come from every level so they stay correct
+    # whatever the ladder shows.
+    nearest_idx = sorted(range(len(all_levels)), key=lambda i: abs(all_levels[i].distance_pct))[:MAX_FIB_LEVELS]
+    levels = [all_levels[i] for i in sorted(nearest_idx)]
     below = [lv for lv in all_levels if lv.price < current_price]
     above = [lv for lv in all_levels if lv.price > current_price]
     nearest_support    = max((lv.price for lv in below), default=None)
