@@ -219,3 +219,56 @@ async def test_fetch_swing_grid_reports_why_symbol_was_dropped(
     monkeypatch.setattr(signals_client, "_post_signals", fake_post)
     with pytest.raises(SignalsUnavailableError, match="no robust combo"):
         await signals_client.fetch_swing_grid("SNDK")
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"rows": "SNDK"},
+        {"rows": [None]},
+        {"rows": ["SNDK"]},
+        {"rows": [{"symbol": "SNDK", "swing": None}]},
+        {"rows": [{"symbol": "SNDK", "swing": "best"}]},
+    ],
+)
+async def test_fetch_swing_grid_rejects_malformed_rows(
+    monkeypatch: pytest.MonkeyPatch, payload: dict
+) -> None:
+    import signals_client
+
+    async def fake_post(path, body):
+        return payload
+
+    monkeypatch.setattr(signals_client, "_post_signals", fake_post)
+    with pytest.raises(SignalsUnavailableError, match="malformed"):
+        await signals_client.fetch_swing_grid("SNDK")
+
+
+@pytest.mark.parametrize(
+    "steps",
+    [None, "swing_grid", [{"op": "swing_grid", "dropped": None}], ["swing_grid"]],
+)
+async def test_fetch_swing_grid_tolerates_malformed_steps(
+    monkeypatch: pytest.MonkeyPatch, steps
+) -> None:
+    import signals_client
+
+    async def fake_post(path, body):
+        return {"rows": [], "steps": steps}
+
+    monkeypatch.setattr(signals_client, "_post_signals", fake_post)
+    with pytest.raises(SignalsUnavailableError, match="swing grid returned no result"):
+        await signals_client.fetch_swing_grid("SNDK")
+
+
+async def test_fetch_swing_grid_null_rows_falls_through_to_no_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import signals_client
+
+    async def fake_post(path, body):
+        return {"rows": None}
+
+    monkeypatch.setattr(signals_client, "_post_signals", fake_post)
+    with pytest.raises(SignalsUnavailableError, match="swing grid returned no result"):
+        await signals_client.fetch_swing_grid("SNDK")
