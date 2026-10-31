@@ -20,7 +20,7 @@ One page per named component.
 - [[entity-backend-api]] — FastAPI `/api/analyze` + `/health`; `HoldFoldVerdict` shape; local vs Cloud Run gap
 - [[entity-verdict-core]] — `backend/core.py`; transport-agnostic `compute_verdict()` extracted from the FastAPI route so the CLI and MCP server share one verdict engine
 - [[entity-signal-pipeline]] — 4-stage core: indicators → 18 detectors → ranking → verdict
-- [[entity-firestore-cache]] — 1h TTL write-through cache keyed on symbol only (period not in key); stale hits re-fetch synchronously (no background refresh); degrades gracefully without GCP creds
+- [[entity-firestore-cache]] — 1h TTL write-through cache keyed on `symbol:period` (PR #17 fixed the prior symbol-only key); stale hits re-fetch synchronously (no background refresh); degrades gracefully without GCP creds
 - [[entity-options-payoff]] — 14-strategy payoff engine; 60-point curve; PoP estimate
 - [[entity-mcp-finance]] — shared analysis library in `gcp-app-w-mcp1`; imported via sys.path
 - [[entity-cli]] — `holdfold` Typer CLI; hybrid in-process/HTTP transport; exit codes encode the verdict
