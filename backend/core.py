@@ -466,8 +466,6 @@ class HoldFoldVerdict(BaseModel):
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _volatility_regime(atr: float | None, price: float, p: VerdictParams | None = None) -> str:
-    p = p or VerdictParams()
 def _suppression_code(raw: object) -> str:
     """Normalize a suppression entry to its bare code (e.g. ``NO_TREND``).
 
@@ -501,7 +499,8 @@ def _resolve_atr(indicators: dict, trade: dict) -> float | None:
     return _positive_finite(metrics.get("atr"))
 
 
-def _volatility_regime(atr: float | None, price: float) -> str:
+def _volatility_regime(atr: float | None, price: float, p: VerdictParams | None = None) -> str:
+    p = p or VerdictParams()
     if not atr or price == 0:
         return "unknown"
     pct = (atr / price) * 100
